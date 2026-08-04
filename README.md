@@ -1,39 +1,34 @@
 # Atama Enrichment MVP
 
-Konum: `/Users/hazimrentready/VSCodeProjects/atama-enrichment-mvp`
-
 Kariyer Kapısı **resmi RSS** + SBB **kamuilan** listesini çeker, normalize eder, **insan onayına** bırakır.
 
 Bildirio kopyası değil. Onların API’sini kullanmaz.
 
-## Basit akış (bunu aklında tut)
+## Basit akış
 
 ```text
 1) Cron her gece kaynaklara bakar
 2) Yeni ilan görürse → "aday" olarak kaydeder (pending)
-3) Telegram'a "şu kadar yeni aday var" yazar  ← seni uyandırır
+3) Telegram'a "şu kadar yeni aday var" yazar
 4) Sen `review` ile onaylarsın
 5) Onaylananlar export edilir
 ```
 
 **Telegram bildirimi nedir?**  
-Kullanıcıya app push değil. **Sana / ekibe** giden kısa mesaj: “Bu gece 7 yeni ilan adayı çıktı, linkleri şöyle…”. Sonra sen `review` ile bakarsın. Otomatik yayın yok.
+Kullanıcıya app push değil. Operatöre / ekibe giden kısa mesaj: “Bu gece N yeni ilan adayı…”. Sonra `review` ile bakılır. Otomatik yayın yok.
 
 ## Neden şimdilik Firebase değil?
 
-Firebase Cloud Functions bu MVP için fazla ağır (Python + Scheduler + secret + deploy).  
-İlk adım: **GitHub Actions cron** — ücretsiz, zaten bildiğin tooling, 5 dakikada ayağa kalkar.
-
-Firebase’e geçmek istersen sonraki adım: Cloud Scheduler → Cloud Run/Functions. Şart değil.
+Firebase Cloud Functions bu MVP için fazla ağır.  
+İlk adım: **GitHub Actions cron**.
 
 ## Kurulum
 
 ```bash
-cd ~/VSCodeProjects/atama-enrichment-mvp
 export PYTHONPATH=src
 ```
 
-Harici paket yok (stdlib).
+Harici paket yok (stdlib). Secret’ları asla commit etme (repo public).
 
 ## Komutlar
 
@@ -57,11 +52,11 @@ python3 -m atama_mvp.cli export --status approved --out data/approved.json
 python3 -m atama_mvp.cli notify-test
 ```
 
-### Telegram kurulumu (opsiyonel, 3 dk)
+### Telegram (local)
 
-1. Telegram’da [@BotFather](https://t.me/BotFather) → `/newbot` → **token** al  
-2. Bota bir mesaj at; sonra `https://api.telegram.org/bot<TOKEN>/getUpdates` ile **chat_id** bul  
-3. Shell’de:
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → token al  
+2. Bota bir mesaj at; `getUpdates` ile `chat_id` bul  
+3. Shell’de (değerleri chat’e / commit’e yazma):
 
 ```bash
 export TELEGRAM_BOT_TOKEN="..."
@@ -69,21 +64,25 @@ export TELEGRAM_CHAT_ID="..."
 python3 -m atama_mvp.cli notify-test
 ```
 
+### Telegram (GitHub Actions — public repo)
+
+Repo → **Settings → Secrets and variables → Actions** → iki secret ekle:
+
+| Secret adı | Değer |
+|------------|--------|
+| `TELEGRAM_BOT_TOKEN` | BotFather token |
+| `TELEGRAM_CHAT_ID` | chat id |
+
+Kod ve workflow sadece `secrets.*` okur; token README’ye veya issue’ya yazılmaz.
+
 ## Cron (GitHub Actions)
 
 Dosya: `.github/workflows/nightly-fetch.yml`  
 Zaman: her gün **00:05 TR** (`cron: "5 21 * * *"` UTC)
 
-```bash
-cd ~/VSCodeProjects/atama-enrichment-mvp
-git init   # henüz yoksa
-# GitHub'a repo açıp push et
-# Settings → Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (opsiyonel)
-```
+Actions → “Nightly fetch” → **Run workflow** ile test.
 
-Actions → “Nightly fetch” → **Run workflow** ile hemen test edebilirsin.
-
-Not: Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır. Kalıcı DB istersen sonra Firestore/Postgres ekleriz.
+Not: Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır.
 
 ## Kaynaklar
 
@@ -94,6 +93,6 @@ Not: Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır.
 
 ## Sonraki adımlar
 
-1. Telegram botunu bağla + `notify-test`  
-2. Repo’yu GitHub’a push et → cron çalışsın  
-3. (İleride) Detay tarihi parse / Firebase’e taşıma
+1. Telegram secrets (local env + GitHub Secrets)  
+2. `notify-test` + Actions “Run workflow”  
+3. (İleride) diğer resmi kaynaklar / kalıcı DB
