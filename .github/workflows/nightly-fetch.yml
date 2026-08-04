@@ -1,0 +1,36 @@
+name: Nightly fetch
+
+# Her gece 00:05 Europe/Istanbul ≈ 21:05 UTC
+# Çalışması için repo GitHub'a push edilmeli.
+# Telegram opsiyonel: repo Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+on:
+  schedule:
+    - cron: "5 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch sources
+        env:
+          PYTHONPATH: src
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -m atama_mvp.cli fetch --source all --notify-telegram
+
+      - name: Upload SQLite artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mvp-sqlite
+          path: data/mvp.sqlite3
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,3 @@
+# stdlib-only MVP; no hard runtime deps.
+# Optional nicer HTML parsing if you prefer:
+# beautifulsoup4>=4.12
