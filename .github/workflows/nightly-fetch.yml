@@ -1,5 +1,10 @@
 name: Nightly fetch
 
+# Hybrid: GitHub-hosted runners often time out on kamuilan.sbb.gov.tr (foreign/cloud IP).
+# Actions = Kariyer Kapısı only + Telegram. Run SBB locally from TR IP:
+#   export PYTHONPATH=src
+#   python -m atama_mvp.cli fetch --source sbb --notify-telegram
+#
 # Her gece 00:05 Europe/Istanbul ≈ 21:05 UTC
 # Telegram: repo Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
@@ -18,13 +23,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch sources
+      - name: Fetch Kariyer Kapısı (hybrid — no SBB on cloud IP)
         env:
           PYTHONPATH: src
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -m atama_mvp.cli fetch --source all --notify-telegram
+          python -m atama_mvp.cli fetch --source kk --notify-telegram
 
       - name: Upload SQLite artifact
         uses: actions/upload-artifact@v7

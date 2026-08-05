@@ -75,16 +75,20 @@ Repo → **Settings → Secrets and variables → Actions** → iki secret ekle:
 
 Kod ve workflow sadece `secrets.*` okur; token README’ye veya issue’ya yazılmaz.
 
-## Cron (GitHub Actions)
+## Cron (GitHub Actions) — hibrit
 
 Dosya: `.github/workflows/nightly-fetch.yml`  
 Zaman: her gün **00:05 TR** (`cron: "5 21 * * *"` UTC)
 
-Actions → “Nightly fetch” → **Run workflow** ile test.
+**Hibrit model (şu an):**
+- **GitHub Actions** → sadece Kariyer Kapısı (`--source kk`) + Telegram  
+- **Lokal (TR IP)** → SBB: `python3 -m atama_mvp.cli fetch --source sbb --notify-telegram`
 
-Notlar:
-- Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır.
-- Bazı `.gov.tr` siteleri (özellikle SBB) GitHub runner IP’lerinden timeout verebilir. Job artık kaynak başına izole: biri düşerse diğerleri + Telegram devam eder.
+Sebep: `kamuilan.sbb.gov.tr` GitHub’ın yurtdışı/bulut IP’lerinden sık timeout veriyor; senin makineden açılıyor.
+
+Actions → “Nightly fetch” → **Run workflow** ile test (~birkaç saniye sürmeli).
+
+Not: Actions her seferinde temiz makine; SQLite artifact olarak saklanır.
 
 ## Kaynaklar
 
