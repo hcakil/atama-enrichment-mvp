@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from atama_mvp.enrich import draft_from_listing
@@ -17,25 +18,33 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     store = Store(Path(args.db) if args.db else None)
     collected: list[RawListing] = []
     failures: list[str] = []
+    source_logs: list[str] = []
     attempted = 0
 
     def _run(label: str, fn) -> None:
         nonlocal attempted
         attempted += 1
-        print(f"Fetching {label}…")
+        print(f"[{label}] starting…", flush=True)
+        t0 = time.perf_counter()
         try:
             items = fn()
-            print(f"  {len(items)} items")
+            elapsed = time.perf_counter() - t0
+            line = f"[{label}] ok in {elapsed:.1f}s — {len(items)} ilan"
+            print(line, flush=True)
+            source_logs.append(line)
             collected.extend(items)
         except Exception as exc:  # noqa: BLE001 — isolate source failures for cron
-            msg = f"{label}: {type(exc).__name__}: {exc}"
-            failures.append(msg)
-            print(f"  FAILED: {msg}", file=sys.stderr)
+            elapsed = time.perf_counter() - t0
+            err = f"{type(exc).__name__}: {exc}"
+            line = f"[{label}] FAILED after {elapsed:.1f}s — {err}"
+            failures.append(line)
+            source_logs.append(line)
+            print(line, file=sys.stderr, flush=True)
 
     if args.source in ("all", "kk", "kariyer_kapisi"):
-        _run("Kariyer Kapısı RSS", fetch_kariyer_kapisi)
+        _run("kariyer_kapisi", fetch_kariyer_kapisi)
     if args.source in ("all", "sbb", "sbb_kamuilan"):
-        _run("SBB Kamu İlan homepage", fetch_sbb_kamuilan)
+        _run("sbb_kamuilan", fetch_sbb_kamuilan)
 
     if not collected and failures:
         print("All sources failed.", file=sys.stderr)
@@ -46,34 +55,33 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         store.save_draft(draft_from_listing(item))
 
     new_fps = list(stats.get("new_fingerprints") or [])
-    print(f"Upsert: new={stats['new']} updated={stats['seen']}")
-    print("Counts:", store.counts())
+    counts = store.counts()
+    print(
+        f"Upsert: new={stats['new']} updated={stats['seen']} | Counts: {counts}",
+        flush=True,
+    )
     if failures:
-        print(f"Source failures ({len(failures)}/{attempted}):", file=sys.stderr)
-        for f in failures:
-            print(f"  - {f}", file=sys.stderr)
+        print(f"Source failures ({len(failures)}/{attempted})", file=sys.stderr, flush=True)
 
     if args.notify_telegram:
         if not telegram_configured():
             print("Telegram skipped: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID", file=sys.stderr)
             return 0
-        parts: list[str] = []
+        parts: list[str] = [
+            "atama-mvp fetch raporu",
+            "",
+            *source_logs,
+            "",
+            f"Upsert: new={stats['new']} updated={stats['seen']}",
+            f"DB: {counts}",
+        ]
         if new_fps:
             rows = store.get_by_fingerprints(new_fps)
-            parts.append(format_new_candidates(rows))
-            print(f"Telegram will include {len(new_fps)} new candidate(s).")
-        elif failures:
-            parts.append("Yeni aday yok; bazı kaynaklar başarısız.")
-        else:
-            print("No new candidates; Telegram not sent.")
-            return 0
-        if failures:
             parts.append("")
-            parts.append(f"Kaynak hataları ({len(failures)}/{attempted}):")
-            for f in failures:
-                parts.append(f"• {f}")
+            parts.append(format_new_candidates(rows))
+            print(f"Telegram will include {len(new_fps)} new candidate(s).", flush=True)
         send_telegram_message("\n".join(parts))
-        print("Telegram sent.")
+        print("Telegram sent.", flush=True)
     return 0
 
 

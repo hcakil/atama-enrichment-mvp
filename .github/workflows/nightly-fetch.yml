@@ -1,8 +1,7 @@
 name: Nightly fetch
 
 # Her gece 00:05 Europe/Istanbul ≈ 21:05 UTC
-# Çalışması için repo GitHub'a push edilmeli.
-# Telegram opsiyonel: repo Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Telegram: repo Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 on:
   schedule:
@@ -13,9 +12,9 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -28,7 +27,7 @@ jobs:
           python -m atama_mvp.cli fetch --source all --notify-telegram
 
       - name: Upload SQLite artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mvp-sqlite
           path: data/mvp.sqlite3
