@@ -6,5 +6,3 @@ venv/
 .DS_Store
 *.sqlite3
 .env
-logs
-logs/
