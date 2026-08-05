@@ -75,7 +75,41 @@ Repo → **Settings → Secrets and variables → Actions** → iki secret ekle:
 
 Kod ve workflow sadece `secrets.*` okur; token README’ye veya issue’ya yazılmaz.
 
-## Cron — lokal Mac (önerilen, hibrit)
+## Cron — kullanılmayan Windows PC (önerilen, sıfır maliyet + TR IP)
+
+Evde boşta duran Windows makine TR ISP IP’si ile SBB’yi açabilir (VPS şart değil).
+
+1. Windows’ta Python 3 kur → PATH’e ekle  
+2. Repoyu klonla, `.env` oluştur:
+
+```powershell
+cd C:\path\to\atama-enrichment-mvp
+copy .env.example .env
+# .env içine TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID
+```
+
+3. Görev zamanlayıcı (her gün **00:05**):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-task.ps1
+Start-ScheduledTask -TaskName AtamaMvpNightly
+Get-Content .\logs\local-nightly.log -Wait
+```
+
+Ne olur?
+- Önce **KK** → Telegram 1  
+- Sonra **SBB** → Telegram 2  
+- Log: `logs\local-nightly.log`
+
+PC **uykuya girmemeli** (Sleep = Never) veya en azından zamanlanmış uyandırma açık olsun. Kapalıysa o gece kaçırır.
+
+Hızlı IP testi (kurmadan):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\probe-sources.ps1
+```
+
+### Cron — lokal Mac (opsiyonel)
 
 GitHub’ın bulut IP’si SBB’yi sık timeout’a düşürüyor. Gece işi **senin Mac’inden** (TR IP) gitsin:
 
