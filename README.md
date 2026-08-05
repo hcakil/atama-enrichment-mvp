@@ -109,6 +109,21 @@ Ne olur?
 
 Mac uyku / kapalıysa o gece job kaçabilir — uzun vadede TR VPS / self-hosted runner daha stabil.
 
+### VPS notu (sıfır maliyet vs TR IP)
+
+Kalıcı **ücretsiz + güvenilir Türkiye IP** pratikte yok. Karar ağacı:
+
+1. **$0 deneme:** Oracle Always Free (EU home region mümkünse) → VPS’te `./scripts/probe-sources.sh`  
+   - SBB **200** → ücretsiz bulut yeter, TR şart değil  
+   - SBB **timeout** → TR lokasyon şart  
+2. **Ucuz TR VPS** (~aylık birkaç USD, örn. Turhost Istanbul): cron + Telegram; stabil yol  
+3. “Bedava VDS Türkiye” reklam siteleri → genelde güvenilmez, önerme
+
+```bash
+chmod +x scripts/probe-sources.sh
+./scripts/probe-sources.sh
+```
+
 ### GitHub Actions (opsiyonel smoke)
 
 Schedule **kapalı** (çift Telegram olmasın). İstersen Actions → “Nightly fetch” → **Run workflow** ile sadece cloud KK testi.
