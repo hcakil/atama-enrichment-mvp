@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -10,6 +12,18 @@ DEFAULT_UA = (
     "Mozilla/5.0 (compatible; AtamaEnrichmentMVP/0.1; "
     "+https://github.com/hcakil/atama-enrichment-mvp)"
 )
+
+
+def _ssl_context() -> ssl.SSLContext | None:
+    """
+    Default: system verification.
+    Some .gov.tr hosts omit intermediates; GitHub runners then fail with
+    CERTIFICATE_VERIFY_FAILED. Set ATAMA_SSL_NO_VERIFY=1 only when needed.
+    """
+    flag = os.environ.get("ATAMA_SSL_NO_VERIFY", "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return ssl._create_unverified_context()
+    return None
 
 
 def fetch_bytes(
@@ -29,11 +43,12 @@ def fetch_bytes(
     if headers:
         hdrs.update(headers)
 
+    ctx = _ssl_context()
     last: BaseException | None = None
     for attempt in range(1, retries + 1):
         try:
             req = urllib.request.Request(url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 return resp.read()
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last = exc
@@ -85,11 +100,12 @@ def post_json(
         hdrs.update(headers)
 
     body = json.dumps(payload).encode("utf-8")
+    ctx = _ssl_context()
     last: BaseException | None = None
     for attempt in range(1, retries + 1):
         try:
             req = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             last = exc
