@@ -1,14 +1,28 @@
 name: Nightly fetch
 
-# Hybrid: cloud IP often cannot reach kamuilan.sbb.gov.tr.
-# Preferred path = local Mac LaunchAgent (scripts/install-local-launchd.sh):
-#   separate KK + SBB fetches, separate Telegram messages, TR IP.
-#
-# This workflow is manual-only (no schedule) to avoid duplicate Telegram noise.
-# Telegram secrets still work if you Run workflow for cloud KK-only smoke tests.
+# Hybrid notes:
+# - SBB often times out from GitHub cloud IPs → prefer Windows home PC for SBB.
+# - ilan.gov.tr: test via workflow_dispatch source=ilan (no Telegram by default).
+# Schedule disabled to avoid duplicate Telegram noise vs local Windows task.
 
 on:
   workflow_dispatch:
+    inputs:
+      source:
+        description: "Fetch source"
+        required: true
+        default: "ilan"
+        type: choice
+        options:
+          - ilan
+          - kk
+          - sbb
+          - all
+      notify_telegram:
+        description: "Send Telegram report"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   fetch:
@@ -20,13 +34,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch Kariyer Kapısı (cloud smoke — no SBB)
+      - name: Fetch source (EU/cloud IP probe)
         env:
           PYTHONPATH: src
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SOURCE: ${{ inputs.source }}
+          NOTIFY: ${{ inputs.notify_telegram }}
         run: |
-          python -m atama_mvp.cli fetch --source kk --notify-telegram
+          if [ "$NOTIFY" = "true" ]; then
+            python -m atama_mvp.cli fetch --source "$SOURCE" --notify-telegram
+          else
+            python -m atama_mvp.cli fetch --source "$SOURCE"
+          fi
 
       - name: Upload SQLite artifact
         uses: actions/upload-artifact@v7

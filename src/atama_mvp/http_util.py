@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import urllib.error
 import urllib.request
@@ -62,3 +63,38 @@ def fetch_text(
     if encoding:
         return raw.decode(encoding, errors="replace")
     return raw.decode("utf-8", errors="replace")
+
+
+def post_json(
+    url: str,
+    payload: dict,
+    *,
+    timeout: int = 45,
+    retries: int = 3,
+    backoff_sec: float = 2.0,
+    headers: dict[str, str] | None = None,
+) -> dict:
+    """POST JSON body, return parsed object. Raises last error if all attempts fail."""
+    hdrs = {
+        "User-Agent": DEFAULT_UA,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+    }
+    if headers:
+        hdrs.update(headers)
+
+    body = json.dumps(payload).encode("utf-8")
+    last: BaseException | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(url, data=body, headers=hdrs, method="POST")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            last = exc
+            if attempt >= retries:
+                break
+            time.sleep(backoff_sec * attempt)
+    assert last is not None
+    raise last

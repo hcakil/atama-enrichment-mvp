@@ -8,7 +8,7 @@ from typing import Any
 class RawListing:
     """Normalized listing candidate before human approval."""
 
-    source: str  # kariyer_kapisi | sbb_kamuilan
+    source: str  # kariyer_kapisi | sbb_kamuilan | ilan_gov
     external_id: str
     external_url: str
     title: str

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from atama_mvp.enrich import draft_from_listing
+from atama_mvp.fetchers.ilan_gov import fetch_ilan_gov
 from atama_mvp.fetchers.kariyer_kapisi import fetch_kariyer_kapisi
 from atama_mvp.fetchers.sbb_kamuilan import fetch_sbb_kamuilan
 from atama_mvp.models import RawListing
@@ -45,6 +46,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         _run("kariyer_kapisi", fetch_kariyer_kapisi)
     if args.source in ("all", "sbb", "sbb_kamuilan"):
         _run("sbb_kamuilan", fetch_sbb_kamuilan)
+    if args.source in ("all", "ilan", "ilan_gov"):
+        _run("ilan_gov", fetch_ilan_gov)
 
     if not collected and failures:
         print("All sources failed.", file=sys.stderr)
@@ -174,7 +177,7 @@ def cmd_notify_test(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="atama-mvp",
-        description="Human-in-the-loop ingest for Kariyer Kapısı RSS + SBB Kamu İlan",
+        description="Human-in-the-loop ingest for Kariyer Kapısı, SBB Kamu İlan, ilan.gov.tr",
     )
     p.add_argument("--db", default=None, help="SQLite path (default: ./data/mvp.sqlite3)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -183,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument(
         "--source",
         default="all",
-        choices=["all", "kk", "kariyer_kapisi", "sbb", "sbb_kamuilan"],
+        choices=["all", "kk", "kariyer_kapisi", "sbb", "sbb_kamuilan", "ilan", "ilan_gov"],
     )
     f.add_argument(
         "--notify-telegram",

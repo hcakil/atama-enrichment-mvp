@@ -168,6 +168,7 @@ Schedule **kapalı** (çift Telegram olmasın). İstersen Actions → “Nightly
 |--------|----------|
 | Kariyer Kapısı | `https://kariyerkapisi.gov.tr/RSS` |
 | SBB Kamu İlan | `https://kamuilan.sbb.gov.tr/` |
+| ilan.gov.tr | `POST …/Ad/AdsByFilter` (personel `txv` kategorileri) |
 
 ## Sonraki adımlar
 
