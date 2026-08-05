@@ -82,7 +82,9 @@ Zaman: her gün **00:05 TR** (`cron: "5 21 * * *"` UTC)
 
 Actions → “Nightly fetch” → **Run workflow** ile test.
 
-Not: Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır.
+Notlar:
+- Actions her seferinde temiz makine açar; SQLite artifact olarak saklanır.
+- Bazı `.gov.tr` siteleri (özellikle SBB) GitHub runner IP’lerinden timeout verebilir. Job artık kaynak başına izole: biri düşerse diğerleri + Telegram devam eder.
 
 ## Kaynaklar
 

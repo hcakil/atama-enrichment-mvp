@@ -4,13 +4,12 @@ import hashlib
 import html as html_lib
 import re
 import urllib.parse
-import urllib.request
 from html.parser import HTMLParser
 
+from ..http_util import fetch_text
 from ..models import RawListing
 
 LIST_URL = "https://kamuilan.sbb.gov.tr/"
-USER_AGENT = "AtamaEnrichmentMVP/0.1 (+research; polite; contact: local)"
 
 
 class _SlidesParser(HTMLParser):
@@ -76,17 +75,6 @@ class _SlidesParser(HTMLParser):
             self._buf.append(data)
 
 
-def _get(url: str, timeout: int = 30) -> str:
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        charset = resp.headers.get_content_charset() or "utf-8"
-        return raw.decode(charset, errors="replace")
-
-
 def _stable_id(href: str) -> str:
     """SBB kod query is long/encrypted; hash for stable fingerprint."""
     parsed = urllib.parse.urlparse(href)
@@ -101,7 +89,12 @@ def _abs_url(href: str) -> str:
 
 def fetch_sbb_kamuilan(list_url: str = LIST_URL) -> list[RawListing]:
     """Fetch SBB Kamu İlan homepage slides and normalize list cards."""
-    page = _get(list_url)
+    page = fetch_text(
+        list_url,
+        timeout=60,
+        retries=4,
+        headers={"Accept": "text/html,application/xhtml+xml"},
+    )
     parser = _SlidesParser()
     parser.feed(page)
 

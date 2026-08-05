@@ -16,17 +16,30 @@ from atama_mvp.store import Store
 def cmd_fetch(args: argparse.Namespace) -> int:
     store = Store(Path(args.db) if args.db else None)
     collected: list[RawListing] = []
+    failures: list[str] = []
+    attempted = 0
+
+    def _run(label: str, fn) -> None:
+        nonlocal attempted
+        attempted += 1
+        print(f"Fetching {label}…")
+        try:
+            items = fn()
+            print(f"  {len(items)} items")
+            collected.extend(items)
+        except Exception as exc:  # noqa: BLE001 — isolate source failures for cron
+            msg = f"{label}: {type(exc).__name__}: {exc}"
+            failures.append(msg)
+            print(f"  FAILED: {msg}", file=sys.stderr)
 
     if args.source in ("all", "kk", "kariyer_kapisi"):
-        print("Fetching Kariyer Kapısı RSS…")
-        kk = fetch_kariyer_kapisi()
-        print(f"  {len(kk)} items")
-        collected.extend(kk)
+        _run("Kariyer Kapısı RSS", fetch_kariyer_kapisi)
     if args.source in ("all", "sbb", "sbb_kamuilan"):
-        print("Fetching SBB Kamu İlan homepage…")
-        sbb = fetch_sbb_kamuilan()
-        print(f"  {len(sbb)} items")
-        collected.extend(sbb)
+        _run("SBB Kamu İlan homepage", fetch_sbb_kamuilan)
+
+    if not collected and failures:
+        print("All sources failed.", file=sys.stderr)
+        return 1
 
     stats = store.upsert_listings(collected)
     for item in collected:
@@ -35,18 +48,32 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     new_fps = list(stats.get("new_fingerprints") or [])
     print(f"Upsert: new={stats['new']} updated={stats['seen']}")
     print("Counts:", store.counts())
+    if failures:
+        print(f"Source failures ({len(failures)}/{attempted}):", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f}", file=sys.stderr)
 
     if args.notify_telegram:
         if not telegram_configured():
             print("Telegram skipped: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID", file=sys.stderr)
             return 0
-        if not new_fps:
+        parts: list[str] = []
+        if new_fps:
+            rows = store.get_by_fingerprints(new_fps)
+            parts.append(format_new_candidates(rows))
+            print(f"Telegram will include {len(new_fps)} new candidate(s).")
+        elif failures:
+            parts.append("Yeni aday yok; bazı kaynaklar başarısız.")
+        else:
             print("No new candidates; Telegram not sent.")
             return 0
-        rows = store.get_by_fingerprints(new_fps)
-        text = format_new_candidates(rows)
-        send_telegram_message(text)
-        print(f"Telegram sent for {len(new_fps)} new candidate(s).")
+        if failures:
+            parts.append("")
+            parts.append(f"Kaynak hataları ({len(failures)}/{attempted}):")
+            for f in failures:
+                parts.append(f"• {f}")
+        send_telegram_message("\n".join(parts))
+        print("Telegram sent.")
     return 0
 
 

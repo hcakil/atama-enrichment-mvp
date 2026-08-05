@@ -1,19 +1,12 @@
 from __future__ import annotations
 
 import re
-import urllib.request
 from xml.etree import ElementTree as ET
 
+from ..http_util import fetch_bytes
 from ..models import RawListing
 
 RSS_URL = "https://kariyerkapisi.gov.tr/RSS"
-USER_AGENT = "AtamaEnrichmentMVP/0.1 (+research; polite; contact: local)"
-
-
-def _get(url: str, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/xml, text/xml, */*"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
 
 
 def _text(el: ET.Element | None) -> str | None:
@@ -40,7 +33,10 @@ def _split_title(title: str) -> tuple[str | None, str]:
 
 def fetch_kariyer_kapisi(rss_url: str = RSS_URL) -> list[RawListing]:
     """Fetch official Kariyer Kapısı RSS and normalize list cards."""
-    xml = _get(rss_url)
+    xml = fetch_bytes(
+        rss_url,
+        headers={"Accept": "application/rss+xml, application/xml, text/xml, */*"},
+    )
     root = ET.fromstring(xml)
     channel = root.find("channel")
     if channel is None:
