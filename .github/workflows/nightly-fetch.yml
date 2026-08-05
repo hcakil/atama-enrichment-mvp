@@ -1,16 +1,13 @@
 name: Nightly fetch
 
-# Hybrid: GitHub-hosted runners often time out on kamuilan.sbb.gov.tr (foreign/cloud IP).
-# Actions = Kariyer Kapısı only + Telegram. Run SBB locally from TR IP:
-#   export PYTHONPATH=src
-#   python -m atama_mvp.cli fetch --source sbb --notify-telegram
+# Hybrid: cloud IP often cannot reach kamuilan.sbb.gov.tr.
+# Preferred path = local Mac LaunchAgent (scripts/install-local-launchd.sh):
+#   separate KK + SBB fetches, separate Telegram messages, TR IP.
 #
-# Her gece 00:05 Europe/Istanbul ≈ 21:05 UTC
-# Telegram: repo Secrets → TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# This workflow is manual-only (no schedule) to avoid duplicate Telegram noise.
+# Telegram secrets still work if you Run workflow for cloud KK-only smoke tests.
 
 on:
-  schedule:
-    - cron: "5 21 * * *"
   workflow_dispatch:
 
 jobs:
@@ -23,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch Kariyer Kapısı (hybrid — no SBB on cloud IP)
+      - name: Fetch Kariyer Kapısı (cloud smoke — no SBB)
         env:
           PYTHONPATH: src
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

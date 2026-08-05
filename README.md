@@ -75,20 +75,43 @@ Repo → **Settings → Secrets and variables → Actions** → iki secret ekle:
 
 Kod ve workflow sadece `secrets.*` okur; token README’ye veya issue’ya yazılmaz.
 
-## Cron (GitHub Actions) — hibrit
+## Cron — lokal Mac (önerilen, hibrit)
 
-Dosya: `.github/workflows/nightly-fetch.yml`  
-Zaman: her gün **00:05 TR** (`cron: "5 21 * * *"` UTC)
+GitHub’ın bulut IP’si SBB’yi sık timeout’a düşürüyor. Gece işi **senin Mac’inden** (TR IP) gitsin:
 
-**Hibrit model (şu an):**
-- **GitHub Actions** → sadece Kariyer Kapısı (`--source kk`) + Telegram  
-- **Lokal (TR IP)** → SBB: `python3 -m atama_mvp.cli fetch --source sbb --notify-telegram`
+1. `.env` oluştur (commit etme):
 
-Sebep: `kamuilan.sbb.gov.tr` GitHub’ın yurtdışı/bulut IP’lerinden sık timeout veriyor; senin makineden açılıyor.
+```bash
+cp .env.example .env
+# TELEGRAM_BOT_TOKEN=...
+# TELEGRAM_CHAT_ID=...
+```
 
-Actions → “Nightly fetch” → **Run workflow** ile test (~birkaç saniye sürmeli).
+2. LaunchAgent kur (her gün **00:05** yerel saat):
 
-Not: Actions her seferinde temiz makine; SQLite artifact olarak saklanır.
+```bash
+chmod +x scripts/*.sh
+./scripts/install-local-launchd.sh
+```
+
+3. Hemen bir kez dene:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.hcakil.atama-mvp.nightly"
+tail -f logs/local-nightly.log
+```
+
+Ne olur?
+- Önce **KK** çekilir → Telegram rapor 1  
+- Sonra **SBB** çekilir → Telegram rapor 2  
+- Biri fail olsa diğeri yine çalışır (ayrı process)  
+- Log: `logs/local-nightly.log`
+
+Mac uyku / kapalıysa o gece job kaçabilir — uzun vadede TR VPS / self-hosted runner daha stabil.
+
+### GitHub Actions (opsiyonel smoke)
+
+Schedule **kapalı** (çift Telegram olmasın). İstersen Actions → “Nightly fetch” → **Run workflow** ile sadece cloud KK testi.
 
 ## Kaynaklar
 
