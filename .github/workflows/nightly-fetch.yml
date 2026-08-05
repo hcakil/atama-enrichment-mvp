@@ -41,6 +41,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SOURCE: ${{ inputs.source }}
           NOTIFY: ${{ inputs.notify_telegram }}
+          # ilan.gov.tr often omits intermediates; runners then fail TLS verify
+          ATAMA_SSL_NO_VERIFY: "1"
         run: |
           if [ "$NOTIFY" = "true" ]; then
             python -m atama_mvp.cli fetch --source "$SOURCE" --notify-telegram
