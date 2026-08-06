@@ -92,7 +92,10 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     store = Store(Path(args.db) if args.db else None)
-    print(json.dumps(store.counts(), ensure_ascii=False, indent=2))
+    payload = {"backend": store.backend(), "counts": store.counts()}
+    if args.recent:
+        payload["recent"] = [dict(r) for r in store.recent(args.recent)]
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -288,6 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     f.set_defaults(func=cmd_fetch)
 
     s = sub.add_parser("status", help="Show review_status counts")
+    s.add_argument("--recent", type=int, default=0, help="Also print N most recently seen listings")
     s.set_defaults(func=cmd_status)
 
     r = sub.add_parser("review", help="Interactive approve/reject queue")
@@ -322,6 +326,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from atama_mvp.store import load_dotenv
+
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

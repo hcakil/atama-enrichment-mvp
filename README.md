@@ -190,6 +190,19 @@ Schedule **kapalı** (çift Telegram olmasın). İstersen Actions → “Nightly
 Veri akışı / merkezi dump: [docs/data-pipeline.md](docs/data-pipeline.md)  
 ilan.gov detay sınıflandırma: [docs/classify-matrix-ilan-gov.md](docs/classify-matrix-ilan-gov.md)
 
+### Turso (tek remote DB)
+
+`.env` / GitHub Secrets:
+
+```bash
+TURSO_DATABASE_URL=libsql://...
+TURSO_AUTH_TOKEN=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+`TURSO_*` doluysa Windows + Mac + Actions **aynı** DB’ye yazar (`Store` otomatik seçer).
+
 ## Sonraki adımlar
 
 1. Telegram secrets (local env + GitHub Secrets)  
