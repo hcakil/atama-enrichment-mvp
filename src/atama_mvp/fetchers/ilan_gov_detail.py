@@ -74,21 +74,19 @@ def enrich_listing_from_detail(listing: RawListing, result: dict[str, Any]) -> R
     listing.title = (result.get("title") or listing.title or "").strip() or listing.title
     listing.institution_name = (result.get("advertiserName") or listing.institution_name or None)
     listing.external_url = external_url
-    listing.summary = (text[:500] + "…") if len(text) > 500 else (text or listing.summary)
+    # Keep a short card summary only; full text lives in-memory for criteria parse.
+    listing.summary = (text[:200] + "…") if len(text) > 200 else (text or listing.summary)
     listing.raw = {
         **(listing.raw or {}),
         "detail": {
             "adNo": result.get("adNo"),
             "adSourceCode": result.get("adSourceCode"),
             "adSourceName": result.get("adSourceName"),
-            "filters": result.get("filters"),
-            "files": result.get("files"),
-            "adTypeFilters": result.get("adTypeFilters"),
             "content_html_len": len(content_html) if isinstance(content_html, str) else 0,
             "content_text_len": len(text),
         },
+        # In-memory for StructuredCriteria; stripped before DB upsert.
         "content_text": text,
-        "content_html": content_html if isinstance(content_html, str) else None,
     }
     return listing
 

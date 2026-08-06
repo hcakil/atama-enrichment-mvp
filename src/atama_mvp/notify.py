@@ -5,7 +5,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Sequence
+from typing import Any, Sequence
 
 
 def _env(name: str) -> str | None:
@@ -49,42 +49,90 @@ def send_telegram_message(text: str, *, token: str | None = None, chat_id: str |
         raise RuntimeError(f"Telegram API error: {payload}")
 
 
-def format_new_candidates(rows: Sequence[object], *, max_items: int = 15) -> str:
-    """Build a human-readable digest for newly discovered listings."""
+def _get(row: Any, key: str):
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _parse_json_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str):
+        try:
+            data = json.loads(value)
+            if isinstance(data, list):
+                return [str(x) for x in data]
+        except json.JSONDecodeError:
+            return [value]
+    return []
+
+
+def format_listing_card(row: Any) -> list[str]:
+    """One meaningful Telegram card from lean DB row."""
+    source = _get(row, "source")
+    title = _get(row, "title")
+    institution = _get(row, "institution_name")
+    url = _get(row, "external_url")
+    window = _get(row, "application_window")
+    quota = _get(row, "quota")
+    kpss = _get(row, "kpss_requirement")
+    min_age = _get(row, "min_age")
+    max_age = _get(row, "max_age")
+    edu = _parse_json_list(_get(row, "education_levels"))
+    provinces = _parse_json_list(_get(row, "provinces"))
+    enrich = _get(row, "enrich_status")
+    confidence = _get(row, "confidence")
+
+    lines = [f"• [{source}] {institution or '?'} — {title}"]
+
+    bits: list[str] = []
+    if quota is not None:
+        bits.append(f"kota:{quota}")
+    if kpss:
+        bits.append(f"KPSS:{kpss}")
+    if edu:
+        bits.append(f"eğitim:{','.join(edu)}")
+    if min_age is not None or max_age is not None:
+        bits.append(f"yaş:{min_age or '?'}–{max_age or '?'}")
+    if window:
+        bits.append(f"süre:{window}")
+    if enrich:
+        bits.append(f"enrich:{enrich}")
+    if confidence is not None:
+        bits.append(f"conf:{confidence}")
+    if bits:
+        lines.append(f"  {' | '.join(bits)}")
+
+    if provinces:
+        shown = provinces[:8]
+        extra = len(provinces) - len(shown)
+        prov = ", ".join(shown) + (f" (+{extra})" if extra > 0 else "")
+        lines.append(f"  iller: {prov}")
+
+    if source == "sbb_kamuilan":
+        lines.append("  liste: https://kamuilan.sbb.gov.tr/ (detay 404)")
+    elif url:
+        lines.append(f"  {url}")
+    return lines
+
+
+def format_new_candidates(rows: Sequence[object], *, max_items: int = 12) -> str:
+    """Build a human-readable digest from lean enriched listing rows."""
     total = len(rows)
     lines = [
-        f"Yeni ilan adayı: {total}",
-        "Bunlar henüz onaylanmadı — review CLI ile bak.",
+        f"Yeni ilan: {total}",
+        "Review: python -m atama_mvp.cli review --limit 20",
         "",
     ]
     for row in list(rows)[:max_items]:
-        def _get(key: str):
-            return row[key] if not isinstance(row, dict) else row.get(key)
-
-        source = _get("source")
-        title = _get("title")
-        institution = _get("institution_name")
-        url = _get("external_url")
-        window = _get("application_window")
-        published = _get("published_at")
-        summary = _get("summary")
-
-        lines.append(f"• [{source}] {institution or '?'} — {title}")
-        meta_bits = [b for b in [window and f"süre: {window}", published and f"yayın: {published}"] if b]
-        if meta_bits:
-            lines.append(f"  {' | '.join(meta_bits)}")
-        if summary and source == "sbb_kamuilan":
-            # SBB detail pages currently soft-404; keep card text useful in Telegram.
-            short = str(summary).strip()
-            if short and short not in {str(title), f"{institution} — {title}"}:
-                lines.append(f"  {short[:160]}")
-        if source == "sbb_kamuilan":
-            lines.append("  liste: https://kamuilan.sbb.gov.tr/  (SBB detay linki site tarafında 404 verebiliyor)")
-        elif url:
-            lines.append(f"  {url}")
-    if total > max_items:
+        lines.extend(format_listing_card(row))
         lines.append("")
-        lines.append(f"… ve {total - max_items} aday daha (pending).")
-    lines.append("")
-    lines.append("Komut: python -m atama_mvp.cli review --limit 20")
-    return "\n".join(lines)
+    if total > max_items:
+        lines.append(f"… +{total - max_items} daha")
+    return "\n".join(lines).rstrip()

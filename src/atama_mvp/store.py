@@ -7,11 +7,13 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from .models import EnrichmentDraft, RawListing
+from .criteria import StructuredCriteria
+from .models import RawListing
 from .turso_client import TursoClient, turso_configured
 
 DEFAULT_DB = Path(__file__).resolve().parents[2] / "data" / "mvp.sqlite3"
 
+# Lean schema: no raw HTML dumps. Meaningful Bildirio-aligned fields live on the row.
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS listings (
     fingerprint TEXT PRIMARY KEY,
@@ -23,19 +25,27 @@ CREATE TABLE IF NOT EXISTS listings (
     category TEXT,
     published_at TEXT,
     application_window TEXT,
-    image_url TEXT,
-    summary TEXT,
-    raw_json TEXT NOT NULL,
+    application_start TEXT,
+    application_end TEXT,
+    quota INTEGER,
+    kpss_requirement TEXT,
+    education_levels TEXT,
+    provinces TEXT,
+    fields_of_study TEXT,
+    min_age INTEGER,
+    max_age INTEGER,
+    gender TEXT,
+    profession_hint TEXT,
+    military_hints TEXT,
+    license_hints TEXT,
+    confidence REAL,
+    enrich_status TEXT NOT NULL DEFAULT 'none',
+    evidence_json TEXT,
+    criteria_json TEXT,
     first_seen_at REAL NOT NULL,
     last_seen_at REAL NOT NULL,
     review_status TEXT NOT NULL DEFAULT 'pending'
         CHECK (review_status IN ('pending','approved','rejected','skipped'))
-);
-
-CREATE TABLE IF NOT EXISTS enrichment_drafts (
-    fingerprint TEXT PRIMARY KEY,
-    draft_json TEXT NOT NULL,
-    updated_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS review_events (
@@ -45,6 +55,12 @@ CREATE TABLE IF NOT EXISTS review_events (
     note TEXT,
     created_at REAL NOT NULL
 );
+"""
+
+DROP_LEGACY_SQL = """
+DROP TABLE IF EXISTS enrichment_drafts;
+DROP TABLE IF EXISTS review_events;
+DROP TABLE IF EXISTS listings;
 """
 
 
@@ -62,6 +78,54 @@ def load_dotenv(path: Path | None = None) -> None:
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def _json_list(values: list[str] | None) -> str | None:
+    if not values:
+        return None
+    return json.dumps(values, ensure_ascii=False)
+
+
+def criteria_columns(criteria: StructuredCriteria | None) -> dict[str, Any]:
+    if criteria is None:
+        return {
+            "application_start": None,
+            "application_end": None,
+            "quota": None,
+            "kpss_requirement": None,
+            "education_levels": None,
+            "provinces": None,
+            "fields_of_study": None,
+            "min_age": None,
+            "max_age": None,
+            "gender": None,
+            "profession_hint": None,
+            "military_hints": None,
+            "license_hints": None,
+            "confidence": None,
+            "evidence_json": None,
+            "criteria_json": None,
+        }
+    # Cap province list in column; full list stays in criteria_json.
+    provinces = criteria.province_hints[:20] if criteria.province_hints else []
+    return {
+        "application_start": criteria.application_start_hint,
+        "application_end": criteria.application_end_hint,
+        "quota": criteria.quota,
+        "kpss_requirement": criteria.kpss_requirement,
+        "education_levels": _json_list(criteria.education_level_hints),
+        "provinces": _json_list(provinces),
+        "fields_of_study": _json_list(criteria.field_of_study_hints[:10] or None),
+        "min_age": criteria.min_age,
+        "max_age": criteria.max_age,
+        "gender": criteria.gender,
+        "profession_hint": criteria.profession_hint,
+        "military_hints": _json_list(criteria.military_hints or None),
+        "license_hints": _json_list(criteria.license_class_hints or None),
+        "confidence": criteria.confidence,
+        "evidence_json": json.dumps(criteria.evidence, ensure_ascii=False) if criteria.evidence else None,
+        "criteria_json": json.dumps(criteria.to_dict(), ensure_ascii=False),
+    }
 
 
 class Store:
@@ -94,6 +158,18 @@ class Store:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
 
+    def reset(self) -> None:
+        """Drop all tables and recreate lean schema (wipes data)."""
+        if self.use_turso:
+            assert self._turso is not None
+            self._turso.executescript(DROP_LEGACY_SQL)
+            self._turso.executescript(SCHEMA_SQL)
+            return
+        if self.db_path.exists():
+            self.db_path.unlink()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init()
+
     def _execute(self, sql: str, args: Sequence[Any] | tuple[Any, ...] = ()) -> None:
         if self.use_turso:
             assert self._turso is not None
@@ -109,42 +185,84 @@ class Store:
         with self._connect() as conn:
             return list(conn.execute(sql, args))
 
-    def upsert_listings(self, listings: Iterable[RawListing]) -> dict[str, object]:
+    def upsert_listings(
+        self,
+        listings: Iterable[RawListing],
+        *,
+        criteria_by_fp: dict[str, StructuredCriteria] | None = None,
+        enrich_status_by_fp: dict[str, str] | None = None,
+    ) -> dict[str, object]:
         now = time.time()
         stats: dict[str, object] = {"new": 0, "seen": 0, "new_fingerprints": []}
         new_fps: list[str] = []
+        criteria_by_fp = criteria_by_fp or {}
+        enrich_status_by_fp = enrich_status_by_fp or {}
+
         for item in listings:
             row = self._query(
                 "SELECT fingerprint FROM listings WHERE fingerprint = ?",
                 (item.fingerprint,),
             )
-            raw_json = json.dumps(item.raw, ensure_ascii=False)
+            crit = criteria_by_fp.get(item.fingerprint)
+            cols = criteria_columns(crit)
+            enrich_status = enrich_status_by_fp.get(item.fingerprint) or (
+                "detail" if crit and crit.confidence >= 0.45 else ("list" if crit else "none")
+            )
+            # Prefer criteria window hints; keep source window as fallback display.
+            app_window = item.application_window
+            if crit and (crit.application_start_hint or crit.application_end_hint):
+                parts = [p for p in [crit.application_start_hint, crit.application_end_hint] if p]
+                if parts:
+                    app_window = " – ".join(parts)
+
+            values = (
+                item.fingerprint,
+                item.source,
+                item.external_id,
+                item.external_url,
+                item.title,
+                item.institution_name,
+                item.category,
+                item.published_at,
+                app_window,
+                cols["application_start"],
+                cols["application_end"],
+                cols["quota"],
+                cols["kpss_requirement"],
+                cols["education_levels"],
+                cols["provinces"],
+                cols["fields_of_study"],
+                cols["min_age"],
+                cols["max_age"],
+                cols["gender"],
+                cols["profession_hint"],
+                cols["military_hints"],
+                cols["license_hints"],
+                cols["confidence"],
+                enrich_status,
+                cols["evidence_json"],
+                cols["criteria_json"],
+                now,
+                now,
+            )
+
             if not row:
                 self._execute(
                     """
                     INSERT INTO listings (
                         fingerprint, source, external_id, external_url, title,
                         institution_name, category, published_at, application_window,
-                        image_url, summary, raw_json, first_seen_at, last_seen_at,
-                        review_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                        application_start, application_end, quota, kpss_requirement,
+                        education_levels, provinces, fields_of_study, min_age, max_age,
+                        gender, profession_hint, military_hints, license_hints,
+                        confidence, enrich_status, evidence_json, criteria_json,
+                        first_seen_at, last_seen_at, review_status
+                    ) VALUES (
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                        'pending'
+                    )
                     """,
-                    (
-                        item.fingerprint,
-                        item.source,
-                        item.external_id,
-                        item.external_url,
-                        item.title,
-                        item.institution_name,
-                        item.category,
-                        item.published_at,
-                        item.application_window,
-                        item.image_url,
-                        item.summary,
-                        raw_json,
-                        now,
-                        now,
-                    ),
+                    values,
                 )
                 stats["new"] = int(stats["new"]) + 1
                 new_fps.append(item.fingerprint)
@@ -153,9 +271,14 @@ class Store:
                     """
                     UPDATE listings SET
                         title = ?, institution_name = ?, category = ?,
-                        published_at = ?, application_window = ?, image_url = ?,
-                        summary = ?, raw_json = ?, last_seen_at = ?,
-                        external_url = ?
+                        published_at = ?, application_window = ?,
+                        application_start = ?, application_end = ?,
+                        quota = ?, kpss_requirement = ?, education_levels = ?,
+                        provinces = ?, fields_of_study = ?, min_age = ?, max_age = ?,
+                        gender = ?, profession_hint = ?, military_hints = ?,
+                        license_hints = ?, confidence = ?, enrich_status = ?,
+                        evidence_json = ?, criteria_json = ?,
+                        last_seen_at = ?, external_url = ?
                     WHERE fingerprint = ?
                     """,
                     (
@@ -163,10 +286,24 @@ class Store:
                         item.institution_name,
                         item.category,
                         item.published_at,
-                        item.application_window,
-                        item.image_url,
-                        item.summary,
-                        raw_json,
+                        app_window,
+                        cols["application_start"],
+                        cols["application_end"],
+                        cols["quota"],
+                        cols["kpss_requirement"],
+                        cols["education_levels"],
+                        cols["provinces"],
+                        cols["fields_of_study"],
+                        cols["min_age"],
+                        cols["max_age"],
+                        cols["gender"],
+                        cols["profession_hint"],
+                        cols["military_hints"],
+                        cols["license_hints"],
+                        cols["confidence"],
+                        enrich_status,
+                        cols["evidence_json"],
+                        cols["criteria_json"],
                         now,
                         item.external_url,
                         item.fingerprint,
@@ -182,35 +319,19 @@ class Store:
         placeholders = ",".join("?" for _ in fingerprints)
         return self._query(
             f"""
-            SELECT l.*, d.draft_json
-            FROM listings l
-            LEFT JOIN enrichment_drafts d ON d.fingerprint = l.fingerprint
-            WHERE l.fingerprint IN ({placeholders})
-            ORDER BY l.first_seen_at DESC
+            SELECT * FROM listings
+            WHERE fingerprint IN ({placeholders})
+            ORDER BY first_seen_at DESC
             """,
             fingerprints,
-        )
-
-    def save_draft(self, draft: EnrichmentDraft) -> None:
-        self._execute(
-            """
-            INSERT INTO enrichment_drafts (fingerprint, draft_json, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(fingerprint) DO UPDATE SET
-                draft_json = excluded.draft_json,
-                updated_at = excluded.updated_at
-            """,
-            (draft.listing_fingerprint, json.dumps(draft.to_dict(), ensure_ascii=False), time.time()),
         )
 
     def pending(self, limit: int = 20) -> list[Any]:
         return self._query(
             """
-            SELECT l.*, d.draft_json
-            FROM listings l
-            LEFT JOIN enrichment_drafts d ON d.fingerprint = l.fingerprint
-            WHERE l.review_status = 'pending'
-            ORDER BY l.first_seen_at DESC
+            SELECT * FROM listings
+            WHERE review_status = 'pending'
+            ORDER BY first_seen_at DESC
             LIMIT ?
             """,
             (limit,),
@@ -243,11 +364,22 @@ class Store:
     def recent(self, limit: int = 10) -> list[Any]:
         return self._query(
             """
-            SELECT source, title, institution_name, application_window, published_at,
-                   external_url, review_status, first_seen_at
+            SELECT source, title, institution_name, quota, kpss_requirement,
+                   max_age, education_levels, application_window, enrich_status,
+                   confidence, external_url, review_status
             FROM listings
             ORDER BY last_seen_at DESC
             LIMIT ?
             """,
             (limit,),
+        )
+
+    def all_for_export(self, status: str = "all") -> list[Any]:
+        return self._query(
+            """
+            SELECT * FROM listings
+            WHERE (? = 'all' OR review_status = ?)
+            ORDER BY first_seen_at DESC
+            """,
+            (status, status),
         )

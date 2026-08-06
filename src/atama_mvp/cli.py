@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from atama_mvp.central import listing_row_to_central, write_jsonl
-from atama_mvp.enrich import draft_from_listing
+from atama_mvp.enrich import enrich_collected
 from atama_mvp.fetchers.ilan_gov import fetch_ilan_gov
 from atama_mvp.fetchers.ilan_gov_detail import inspect_bundle
 from atama_mvp.fetchers.kariyer_kapisi import fetch_kariyer_kapisi
@@ -55,14 +55,23 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         print("All sources failed.", file=sys.stderr)
         return 1
 
-    stats = store.upsert_listings(collected)
-    for item in collected:
-        store.save_draft(draft_from_listing(item))
+    print(f"[enrich] parsing criteria for {len(collected)} listing(s)…", flush=True)
+    detail_ilan = not getattr(args, "skip_detail", False)
+    enriched, criteria_by_fp, enrich_status = enrich_collected(
+        collected, detail_ilan=detail_ilan
+    )
+    stats = store.upsert_listings(
+        enriched,
+        criteria_by_fp=criteria_by_fp,
+        enrich_status_by_fp=enrich_status,
+    )
 
     new_fps = list(stats.get("new_fingerprints") or [])
     counts = store.counts()
+    detail_n = sum(1 for s in enrich_status.values() if s == "detail")
     print(
-        f"Upsert: new={stats['new']} updated={stats['seen']} | Counts: {counts}",
+        f"Upsert: new={stats['new']} updated={stats['seen']} | "
+        f"enrich_detail={detail_n} | Counts: {counts}",
         flush=True,
     )
     if failures:
@@ -73,11 +82,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
             print("Telegram skipped: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID", file=sys.stderr)
             return 0
         parts: list[str] = [
-            "atama-mvp fetch raporu",
+            "atama-mvp fetch",
             "",
             *source_logs,
             "",
-            f"Upsert: new={stats['new']} updated={stats['seen']}",
+            f"Upsert: new={stats['new']} updated={stats['seen']} | detail={detail_n}",
             f"DB: {counts}",
         ]
         if new_fps:
@@ -87,6 +96,14 @@ def cmd_fetch(args: argparse.Namespace) -> int:
             print(f"Telegram will include {len(new_fps)} new candidate(s).", flush=True)
         send_telegram_message("\n".join(parts))
         print("Telegram sent.", flush=True)
+    return 0
+
+
+def cmd_reset_db(args: argparse.Namespace) -> int:
+    store = Store(Path(args.db) if args.db else None)
+    print(f"Resetting backend={store.backend()} …", flush=True)
+    store.reset()
+    print("Done. Counts:", store.counts(), flush=True)
     return 0
 
 
@@ -108,23 +125,18 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     print(f"{len(rows)} pending item(s). Commands: a=approve r=reject s=skip q=quit\n")
     for row in rows:
-        draft = json.loads(row["draft_json"]) if row["draft_json"] else {}
         print("=" * 72)
         print(f"[{row['source']}] {row['title']}")
         print(f"institution: {row['institution_name']}")
         print(f"url:         {row['external_url']}")
-        print(f"published:   {row['published_at']}")
         print(f"window:      {row['application_window']}")
-        print(f"category:    {row['category']}")
+        print(f"quota:       {row['quota']}")
+        print(f"kpss:        {row['kpss_requirement']}")
+        print(f"edu:         {row['education_levels']}")
+        print(f"age:         {row['min_age']}–{row['max_age']}")
+        print(f"provinces:   {row['provinces']}")
+        print(f"enrich:      {row['enrich_status']} conf={row['confidence']}")
         print(f"fingerprint: {row['fingerprint']}")
-        if draft:
-            print("--- draft ---")
-            print(f"  suggested_title:        {draft.get('suggested_title')}")
-            print(f"  suggested_institution:  {draft.get('suggested_institution')}")
-            print(f"  suggested_quota:        {draft.get('suggested_quota')}")
-            print(f"  suggested_kpss:         {draft.get('suggested_kpss')}")
-            print(f"  confidence:             {draft.get('confidence')}")
-            print(f"  notes: {draft.get('notes')}")
         while True:
             choice = input("action [a/r/s/q]: ").strip().lower()
             if choice in {"a", "r", "s", "q"}:
@@ -141,28 +153,8 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_export(args: argparse.Namespace) -> int:
     store = Store(Path(args.db) if args.db else None)
-    status = args.status
-    with store._connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT l.*, d.draft_json
-            FROM listings l
-            LEFT JOIN enrichment_drafts d ON d.fingerprint = l.fingerprint
-            WHERE (? = 'all' OR l.review_status = ?)
-            ORDER BY l.first_seen_at DESC
-            """,
-            (status, status),
-        ).fetchall()
-    payload = []
-    for row in rows:
-        item = dict(row)
-        if item.get("draft_json"):
-            item["draft"] = json.loads(item.pop("draft_json"))
-        else:
-            item.pop("draft_json", None)
-        if item.get("raw_json"):
-            item["raw"] = json.loads(item.pop("raw_json"))
-        payload.append(item)
+    rows = store.all_for_export(args.status)
+    payload = [listing_row_to_central(row) for row in rows]
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -241,25 +233,14 @@ def cmd_inspect_ilan(args: argparse.Namespace) -> int:
 def cmd_export_central(args: argparse.Namespace) -> int:
     """Export all (or filtered) listings to canonical JSONL for shared/central use."""
     store = Store(Path(args.db) if args.db else None)
-    status = args.status
-    with store._connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT l.*, d.draft_json
-            FROM listings l
-            LEFT JOIN enrichment_drafts d ON d.fingerprint = l.fingerprint
-            WHERE (? = 'all' OR l.review_status = ?)
-            ORDER BY l.first_seen_at DESC
-            """,
-            (status, status),
-        ).fetchall()
+    rows = store.all_for_export(args.status)
     records = [listing_row_to_central(row) for row in rows]
     out = Path(args.out)
     n = write_jsonl(out, records)
     meta = {
-        "schema": "atama_mvp.central_export.v1",
+        "schema": "atama_mvp.central_export.v2",
         "count": n,
-        "status_filter": status,
+        "status_filter": args.status,
         "out": str(out),
     }
     meta_path = out.with_suffix(out.suffix + ".meta.json")
@@ -277,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", default=None, help="SQLite path (default: ./data/mvp.sqlite3)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    f = sub.add_parser("fetch", help="Pull sources, upsert, write enrichment drafts")
+    f = sub.add_parser("fetch", help="Pull sources, enrich criteria, upsert lean rows")
     f.add_argument(
         "--source",
         default="all",
@@ -286,9 +267,17 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument(
         "--notify-telegram",
         action="store_true",
-        help="If new listings appear, send a Telegram digest (needs env vars)",
+        help="Send Telegram digest from enriched rows",
+    )
+    f.add_argument(
+        "--skip-detail",
+        action="store_true",
+        help="Skip ilan.gov GetAdDetail (list-only criteria)",
     )
     f.set_defaults(func=cmd_fetch)
+
+    reset = sub.add_parser("reset-db", help="Wipe listings/review tables (Turso or local SQLite)")
+    reset.set_defaults(func=cmd_reset_db)
 
     s = sub.add_parser("status", help="Show review_status counts")
     s.add_argument("--recent", type=int, default=0, help="Also print N most recently seen listings")

@@ -50,6 +50,10 @@ Write-Log "--- source=sbb ---"
 & $Python -m atama_mvp.cli fetch --source sbb --notify-telegram
 if ($LASTEXITCODE -ne 0) { Write-Log "WARN: sbb exit=$LASTEXITCODE" }
 
+Write-Log "--- source=ilan (detail enrich) ---"
+& $Python -m atama_mvp.cli fetch --source ilan --notify-telegram
+if ($LASTEXITCODE -ne 0) { Write-Log "WARN: ilan exit=$LASTEXITCODE" }
+
 Write-Log "--- export-central ---"
 & $Python -m atama_mvp.cli export-central --status all --out data/central/listings.jsonl
 if ($LASTEXITCODE -ne 0) { Write-Log "WARN: export-central exit=$LASTEXITCODE" }

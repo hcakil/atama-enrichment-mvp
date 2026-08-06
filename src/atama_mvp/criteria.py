@@ -38,8 +38,8 @@ class StructuredCriteria:
 
 QUOTA_CONTEXT_RE = re.compile(
     r"(?:üzere[, ]+|toplam\s+)?(\d{1,4})\s*(?:\([^)]+\)\s*)?"
-    r"(?:kişilik\s+)?(?:personel|memur|işçi|uzman|öğretim|adet)?"
-    r"[^\n.]{0,60}(?:alınacakt|istihdam|kontenjan)",
+    r"(?:kişilik\s+)?(?:personel|memur|işçi|uzman|öğretim|adet|komiser|antrenör)?"
+    r"[^\n.]{0,60}(?:alınacakt|alacak|istihdam|kontenjan)",
     re.I,
 )
 KPSS_RE = re.compile(r"\bKPSS\b|\bP\d{1,3}\b", re.I)

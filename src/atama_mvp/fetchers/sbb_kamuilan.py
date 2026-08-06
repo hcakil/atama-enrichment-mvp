@@ -75,8 +75,14 @@ class _SlidesParser(HTMLParser):
             self._buf.append(data)
 
 
-def _stable_id(href: str) -> str:
-    """SBB kod query is long/encrypted; hash for stable fingerprint."""
+def _stable_id(institution: str | None, title: str, href: str) -> str:
+    """
+    Prefer institution+title so rotating SBB `kod` tokens do not duplicate the same card.
+    Fall back to kod hash if title is empty.
+    """
+    key = f"{(institution or '').strip()}|{(title or '').strip()}".casefold()
+    if key.strip("|"):
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
     parsed = urllib.parse.urlparse(href)
     qs = urllib.parse.parse_qs(parsed.query)
     kod = (qs.get("kod") or [href])[0]
@@ -121,11 +127,10 @@ def fetch_sbb_kamuilan(list_url: str = LIST_URL) -> list[RawListing]:
         patrol = (item.get("patrol") or "").strip()
         window = item.get("h5date")
         stamp = item.get("stamp")
-        external_url = _abs_url(href)
-        external_id = _stable_id(href)
-        title = patrol or institution or external_id
-        # SBB ilanDetay.aspx?kod=… tokens currently resolve to soft-404 even when
-        # copied fresh from the homepage. Keep token in raw; Telegram uses list home.
+        detail_href = _abs_url(href)
+        title = patrol or institution or "sbb"
+        external_id = _stable_id(institution, title, href)
+        # SBB ilanDetay.aspx?kod=… soft-404s; store homepage as public URL.
         out.append(
             RawListing(
                 source="sbb_kamuilan",
@@ -135,14 +140,13 @@ def fetch_sbb_kamuilan(list_url: str = LIST_URL) -> list[RawListing]:
                 institution_name=institution,
                 published_at=stamp,
                 application_window=window,
-                image_url=_abs_url(item["image_src"]) if item.get("image_src") else None,
+                image_url=None,
                 summary=f"{institution or ''} — {patrol}".strip(" —"),
                 raw={
                     "href": href,
-                    "detail_url_unreliable": external_url,
+                    "detail_url_unreliable": detail_href,
                     "stamp": stamp,
                     "list_url": list_url,
-                    "detail_note": "ilanDetay kod links currently soft-404 on SBB; use list homepage",
                 },
             )
         )

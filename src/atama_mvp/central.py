@@ -5,12 +5,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-# Canonical record written to central JSONL (one object per line).
-# Compatible with future remote SQLite/Turso sync; human-readable for MVP.
-
-
 def listing_row_to_central(row: Any) -> dict[str, Any]:
-    """Normalize sqlite3.Row / dict listing (+ optional draft) into central schema."""
+    """Normalize listing row into lean central schema (no raw HTML)."""
 
     def g(key: str, default=None):
         if isinstance(row, dict):
@@ -20,24 +16,19 @@ def listing_row_to_central(row: Any) -> dict[str, Any]:
         except (KeyError, IndexError):
             return default
 
-    draft = None
-    draft_json = g("draft_json")
-    if draft_json:
+    def loads(key: str):
+        val = g(key)
+        if val is None or val == "":
+            return None
+        if isinstance(val, (dict, list)):
+            return val
         try:
-            draft = json.loads(draft_json) if isinstance(draft_json, str) else draft_json
-        except json.JSONDecodeError:
-            draft = None
-
-    raw = None
-    raw_json = g("raw_json")
-    if raw_json:
-        try:
-            raw = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
-        except json.JSONDecodeError:
-            raw = {"_unparsed": True}
+            return json.loads(val)
+        except (json.JSONDecodeError, TypeError):
+            return val
 
     return {
-        "schema": "atama_mvp.central_listing.v1",
+        "schema": "atama_mvp.central_listing.v2",
         "fingerprint": g("fingerprint"),
         "source": g("source"),
         "external_id": g("external_id"),
@@ -47,13 +38,26 @@ def listing_row_to_central(row: Any) -> dict[str, Any]:
         "category": g("category"),
         "published_at": g("published_at"),
         "application_window": g("application_window"),
-        "summary": g("summary"),
-        "image_url": g("image_url"),
+        "application_start": g("application_start"),
+        "application_end": g("application_end"),
+        "quota": g("quota"),
+        "kpss_requirement": g("kpss_requirement"),
+        "education_levels": loads("education_levels"),
+        "provinces": loads("provinces"),
+        "fields_of_study": loads("fields_of_study"),
+        "min_age": g("min_age"),
+        "max_age": g("max_age"),
+        "gender": g("gender"),
+        "profession_hint": g("profession_hint"),
+        "military_hints": loads("military_hints"),
+        "license_hints": loads("license_hints"),
+        "confidence": g("confidence"),
+        "enrich_status": g("enrich_status"),
+        "evidence": loads("evidence_json"),
+        "criteria": loads("criteria_json"),
         "review_status": g("review_status"),
         "first_seen_at": g("first_seen_at"),
         "last_seen_at": g("last_seen_at"),
-        "draft": draft,
-        "raw": raw,
     }
 
 
