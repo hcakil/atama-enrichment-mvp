@@ -12,7 +12,7 @@ function Probe([string]$Name, [string]$Url) {
         return $resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300
     } catch {
         $sw.Stop()
-        Write-Host ("[{0}] FAILED after {1:N1}s — {2}" -f $Name, $sw.Elapsed.TotalSeconds, $_.Exception.Message)
+        Write-Host ("[{0}] FAILED after {1:N1}s - {2}" -f $Name, $sw.Elapsed.TotalSeconds, $_.Exception.Message)
         return $false
     }
 }

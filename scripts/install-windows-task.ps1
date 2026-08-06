@@ -29,6 +29,7 @@ $action = New-ScheduledTaskAction `
 
 $trigger = New-ScheduledTaskTrigger -Daily -At "00:05"
 $settings = New-ScheduledTaskSettingsSet `
+    -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
