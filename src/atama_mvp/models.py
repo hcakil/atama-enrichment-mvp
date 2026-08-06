@@ -42,3 +42,6 @@ class EnrichmentDraft:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# StructuredCriteria lives in atama_mvp.criteria (Bildirio JobPostingDetail subset).

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .criteria import StructuredCriteria, parse_structured_criteria
 from .models import EnrichmentDraft, RawListing
 
 QUOTA_RE = re.compile(r"(\d+)\s*(?:ADET\s+)?", re.I)
@@ -63,4 +64,21 @@ def draft_from_listing(item: RawListing) -> EnrichmentDraft:
         suggested_kpss=kpss,
         notes=" | ".join(notes_parts),
         confidence=round(confidence, 2),
+    )
+
+
+def criteria_from_listing_detail(item: RawListing) -> StructuredCriteria:
+    """Build StructuredCriteria from listing + optional detail text in item.raw."""
+    content_text = ""
+    if isinstance(item.raw, dict):
+        content_text = str(item.raw.get("content_text") or "")
+    if not content_text:
+        content_text = " ".join(
+            x for x in [item.title, item.institution_name, item.summary, item.category] if x
+        )
+    return parse_structured_criteria(
+        content_text=content_text,
+        title=item.title,
+        institution=item.institution_name,
+        listing_fingerprint=item.fingerprint,
     )

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from atama_mvp.enrich import draft_from_listing
 from atama_mvp.fetchers.ilan_gov import fetch_ilan_gov
+from atama_mvp.fetchers.ilan_gov_detail import inspect_bundle
 from atama_mvp.fetchers.kariyer_kapisi import fetch_kariyer_kapisi
 from atama_mvp.fetchers.sbb_kamuilan import fetch_sbb_kamuilan
 from atama_mvp.models import RawListing
@@ -174,6 +175,65 @@ def cmd_notify_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inspect_ilan(args: argparse.Namespace) -> int:
+    """Fetch one ilan.gov detail (GetAdDetail), dump JSON, optional criteria parse. No Telegram."""
+    from atama_mvp.criteria import parse_structured_criteria
+
+    ad_id = args.id
+    if not ad_id:
+        print("Resolving latest personel listing from AdsByFilter…", flush=True)
+        items = fetch_ilan_gov(max_per_category=5)
+        if not items:
+            print("No ilan.gov listings found.", file=sys.stderr)
+            return 1
+        ad_id = items[0].external_id
+        print(f"Using id={ad_id} title={items[0].title}", flush=True)
+
+    print(f"[inspect-ilan] GetAdDetail id={ad_id}…", flush=True)
+    t0 = time.perf_counter()
+    bundle = inspect_bundle(ad_id)
+    elapsed = time.perf_counter() - t0
+    print(
+        f"[inspect-ilan] ok in {elapsed:.1f}s — html={bundle['content_html_len']} "
+        f"text={bundle['content_text_len']} chars",
+        flush=True,
+    )
+
+    criteria = parse_structured_criteria(
+        content_text=bundle["content_text"],
+        title=(bundle.get("meta") or {}).get("title"),
+        institution=(bundle.get("meta") or {}).get("advertiserName"),
+    )
+    out_payload = {
+        **bundle,
+        "structured_criteria": criteria.to_dict(),
+    }
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"ilan_{ad_id}.json"
+    out_path.write_text(json.dumps(out_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {out_path}", flush=True)
+
+    sc = criteria.to_dict()
+    print("StructuredCriteria preview:", flush=True)
+    for key in (
+        "quota",
+        "kpss_requirement",
+        "education_level_hints",
+        "province_hints",
+        "min_age",
+        "max_age",
+        "gender",
+        "military_hints",
+        "confidence",
+        "evidence",
+    ):
+        if key in sc and sc[key] not in (None, [], {}):
+            print(f"  {key}: {sc[key]}", flush=True)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="atama-mvp",
@@ -210,6 +270,14 @@ def build_parser() -> argparse.ArgumentParser:
     n = sub.add_parser("notify-test", help="Send a test Telegram message")
     n.add_argument("--message", default="atama-mvp: Telegram bağlantısı çalışıyor.")
     n.set_defaults(func=cmd_notify_test)
+
+    insp = sub.add_parser(
+        "inspect-ilan",
+        help="Fetch one ilan.gov AdDetail + dump JSON/text (research; no Telegram)",
+    )
+    insp.add_argument("--id", default=None, help="ilan.gov ad id (default: first from list fetch)")
+    insp.add_argument("--out-dir", default="data/inspect", help="Dump directory (gitignored under data/)")
+    insp.set_defaults(func=cmd_inspect_ilan)
     return p
 
 

@@ -36,6 +36,14 @@ Harici paket yok (stdlib). Secret’ları asla commit etme (repo public).
 # Kaynakları çek
 python3 -m atama_mvp.cli fetch --source all
 
+# ilan.gov detay inceleme (Telegram yok; research dump → data/inspect/)
+python3 -m atama_mvp.cli inspect-ilan --id 2188158
+# veya listedeki ilk ilan:
+python3 -m atama_mvp.cli inspect-ilan
+
+# Bildirio public referans snapshot (→ data/refs/, gitignore)
+python3 scripts/snapshot_bildirio_refs.py
+
 # Yeni aday varsa Telegram at (env gerekir)
 python3 -m atama_mvp.cli fetch --source all --notify-telegram
 
@@ -77,18 +85,29 @@ Kod ve workflow sadece `secrets.*` okur; token README’ye veya issue’ya yazı
 
 ## Cron — kullanılmayan Windows PC (önerilen, sıfır maliyet + TR IP)
 
-Evde boşta duran Windows makine TR ISP IP’si ile SBB’yi açabilir (VPS şart değil).
+Evde boşta duran Windows makine TR ISP IP’si ile SBB’yi açabilir (`ilan.gov` cloud’da kalabilir).
 
-1. Windows’ta Python 3 kur → PATH’e ekle  
-2. Repoyu klonla, `.env` oluştur:
+1. **Python 3** kur ([python.org](https://www.python.org/downloads/)) — **Add to PATH** işaretle; PowerShell’i yeniden aç.  
+2. Repoyu klonla, `.env` oluştur (commit etme):
 
 ```powershell
-cd C:\path\to\atama-enrichment-mvp
+cd C:\src
+git clone https://github.com/hcakil/atama-enrichment-mvp.git
+cd atama-enrichment-mvp
 copy .env.example .env
-# .env içine TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID
+notepad .env
+# TELEGRAM_BOT_TOKEN=...
+# TELEGRAM_CHAT_ID=...
 ```
 
-3. Görev zamanlayıcı (her gün **00:05**):
+3. IP / SBB testi:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\probe-sources.ps1
+# beklenen: kariyer_kapisi + sbb_kamuilan http=200, ok_sources=2/2
+```
+
+4. Görev zamanlayıcı (her gün **00:05**):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-task.ps1
@@ -96,18 +115,13 @@ Start-ScheduledTask -TaskName AtamaMvpNightly
 Get-Content .\logs\local-nightly.log -Wait
 ```
 
+5. **Uyku = Never** (Power Options). Kapalı/uykuda job kaçırır.
+
 Ne olur?
 - Önce **KK** → Telegram 1  
 - Sonra **SBB** → Telegram 2  
-- Log: `logs\local-nightly.log`
-
-PC **uykuya girmemeli** (Sleep = Never) veya en azından zamanlanmış uyandırma açık olsun. Kapalıysa o gece kaçırır.
-
-Hızlı IP testi (kurmadan):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\probe-sources.ps1
-```
+- Log: `logs\local-nightly.log`  
+- `ilan` bu script’te yok (bilinçli; cloud Actions’ta)
 
 ### Cron — lokal Mac (opsiyonel)
 
