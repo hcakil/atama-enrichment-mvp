@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from atama_mvp.central import listing_row_to_central, write_jsonl
 from atama_mvp.enrich import draft_from_listing
 from atama_mvp.fetchers.ilan_gov import fetch_ilan_gov
 from atama_mvp.fetchers.ilan_gov_detail import inspect_bundle
@@ -234,6 +235,37 @@ def cmd_inspect_ilan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_central(args: argparse.Namespace) -> int:
+    """Export all (or filtered) listings to canonical JSONL for shared/central use."""
+    store = Store(Path(args.db) if args.db else None)
+    status = args.status
+    with store._connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT l.*, d.draft_json
+            FROM listings l
+            LEFT JOIN enrichment_drafts d ON d.fingerprint = l.fingerprint
+            WHERE (? = 'all' OR l.review_status = ?)
+            ORDER BY l.first_seen_at DESC
+            """,
+            (status, status),
+        ).fetchall()
+    records = [listing_row_to_central(row) for row in rows]
+    out = Path(args.out)
+    n = write_jsonl(out, records)
+    meta = {
+        "schema": "atama_mvp.central_export.v1",
+        "count": n,
+        "status_filter": status,
+        "out": str(out),
+    }
+    meta_path = out.with_suffix(out.suffix + ".meta.json")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {n} records → {out}")
+    print(f"Meta → {meta_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="atama-mvp",
@@ -278,6 +310,14 @@ def build_parser() -> argparse.ArgumentParser:
     insp.add_argument("--id", default=None, help="ilan.gov ad id (default: first from list fetch)")
     insp.add_argument("--out-dir", default="data/inspect", help="Dump directory (gitignored under data/)")
     insp.set_defaults(func=cmd_inspect_ilan)
+
+    c = sub.add_parser(
+        "export-central",
+        help="Export listings to canonical JSONL (shared/central dump)",
+    )
+    c.add_argument("--status", default="all", choices=["all", "pending", "approved", "rejected", "skipped"])
+    c.add_argument("--out", default="data/central/listings.jsonl")
+    c.set_defaults(func=cmd_export_central)
     return p
 
 

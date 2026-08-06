@@ -56,6 +56,9 @@ python3 -m atama_mvp.cli review --limit 10
 # Onaylıları dışa aktar
 python3 -m atama_mvp.cli export --status approved --out data/approved.json
 
+# Merkezi JSONL dump (paylaşılabilir şema)
+python3 -m atama_mvp.cli export-central --status all --out data/central/listings.jsonl
+
 # Telegram test
 python3 -m atama_mvp.cli notify-test
 ```
@@ -183,6 +186,9 @@ Schedule **kapalı** (çift Telegram olmasın). İstersen Actions → “Nightly
 | Kariyer Kapısı | `https://kariyerkapisi.gov.tr/RSS` |
 | SBB Kamu İlan | `https://kamuilan.sbb.gov.tr/` |
 | ilan.gov.tr | `POST …/Ad/AdsByFilter` (personel `txv` kategorileri) |
+
+Veri akışı / merkezi dump: [docs/data-pipeline.md](docs/data-pipeline.md)  
+ilan.gov detay sınıflandırma: [docs/classify-matrix-ilan-gov.md](docs/classify-matrix-ilan-gov.md)
 
 ## Sonraki adımlar
 

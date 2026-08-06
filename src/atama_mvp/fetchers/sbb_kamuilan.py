@@ -124,18 +124,26 @@ def fetch_sbb_kamuilan(list_url: str = LIST_URL) -> list[RawListing]:
         external_url = _abs_url(href)
         external_id = _stable_id(href)
         title = patrol or institution or external_id
+        # SBB ilanDetay.aspx?kod=… tokens currently resolve to soft-404 even when
+        # copied fresh from the homepage. Keep token in raw; Telegram uses list home.
         out.append(
             RawListing(
                 source="sbb_kamuilan",
                 external_id=external_id,
-                external_url=external_url,
+                external_url=LIST_URL,
                 title=title,
                 institution_name=institution,
                 published_at=stamp,
                 application_window=window,
                 image_url=_abs_url(item["image_src"]) if item.get("image_src") else None,
                 summary=f"{institution or ''} — {patrol}".strip(" —"),
-                raw={"href": href, "stamp": stamp, "list_url": list_url},
+                raw={
+                    "href": href,
+                    "detail_url_unreliable": external_url,
+                    "stamp": stamp,
+                    "list_url": list_url,
+                    "detail_note": "ilanDetay kod links currently soft-404 on SBB; use list homepage",
+                },
             )
         )
     return out

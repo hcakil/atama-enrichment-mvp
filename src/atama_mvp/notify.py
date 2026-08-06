@@ -58,13 +58,30 @@ def format_new_candidates(rows: Sequence[object], *, max_items: int = 15) -> str
         "",
     ]
     for row in list(rows)[:max_items]:
-        # sqlite3.Row or mapping-like
-        source = row["source"] if not isinstance(row, dict) else row.get("source")
-        title = row["title"] if not isinstance(row, dict) else row.get("title")
-        institution = row["institution_name"] if not isinstance(row, dict) else row.get("institution_name")
-        url = row["external_url"] if not isinstance(row, dict) else row.get("external_url")
+        def _get(key: str):
+            return row[key] if not isinstance(row, dict) else row.get(key)
+
+        source = _get("source")
+        title = _get("title")
+        institution = _get("institution_name")
+        url = _get("external_url")
+        window = _get("application_window")
+        published = _get("published_at")
+        summary = _get("summary")
+
         lines.append(f"• [{source}] {institution or '?'} — {title}")
-        lines.append(f"  {url}")
+        meta_bits = [b for b in [window and f"süre: {window}", published and f"yayın: {published}"] if b]
+        if meta_bits:
+            lines.append(f"  {' | '.join(meta_bits)}")
+        if summary and source == "sbb_kamuilan":
+            # SBB detail pages currently soft-404; keep card text useful in Telegram.
+            short = str(summary).strip()
+            if short and short not in {str(title), f"{institution} — {title}"}:
+                lines.append(f"  {short[:160]}")
+        if source == "sbb_kamuilan":
+            lines.append("  liste: https://kamuilan.sbb.gov.tr/  (SBB detay linki site tarafında 404 verebiliyor)")
+        elif url:
+            lines.append(f"  {url}")
     if total > max_items:
         lines.append("")
         lines.append(f"… ve {total - max_items} aday daha (pending).")
