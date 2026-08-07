@@ -64,3 +64,16 @@ Doğrulandı: ana sayfadan taze `kod=` linkleri bile soft-404 HTML dönüyor. Bi
 4. **Sonra:** detay enrichment (`StructuredCriteria`) → review → kullanıcı eşleştirme.
 
 Önerilen varsayılan: Windows = SBB+KK yazarı; Actions = `ilan` yazarı; ikisi de aynı central JSONL/DB şemasına export eder.
+
+## B2B / partner feed
+
+Turso (veya local SQLite) → read-only JSON + CSV + metrics. Partner’a ham Telegram bot değil.
+
+```bash
+export PYTHONPATH=src
+python3 -m atama_mvp.cli export-feed --demo --min-confidence 0.45 --out data/demo/feed
+python3 -m atama_mvp.cli export-feed --status approved --min-confidence 0.5 --out data/feed/pilot
+```
+
+Eşleşmeli alert: `match-alert --profile examples/alert-profile.example.json`.  
+Detay: [b2b-feed-and-demo.md](b2b-feed-and-demo.md).

@@ -58,4 +58,8 @@ Write-Log "--- export-central ---"
 & $Python -m atama_mvp.cli export-central --status all --out data/central/listings.jsonl
 if ($LASTEXITCODE -ne 0) { Write-Log "WARN: export-central exit=$LASTEXITCODE" }
 
+Write-Log "--- export-feed (B2B snapshot) ---"
+& $Python -m atama_mvp.cli export-feed --status all --min-confidence 0.35 --out data/feed/nightly
+if ($LASTEXITCODE -ne 0) { Write-Log "WARN: export-feed exit=$LASTEXITCODE" }
+
 Write-Log "======== local-nightly done ========"

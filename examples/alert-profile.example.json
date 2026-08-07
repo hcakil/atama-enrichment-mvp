@@ -1,0 +1,10 @@
+{
+  "provinces": ["Ankara", "İstanbul"],
+  "education_levels": ["lisans", "önlisans"],
+  "kpss_requirement": ["kpss", "tyt"],
+  "age": 28,
+  "sources": [],
+  "min_confidence": 0.4,
+  "keywords": [],
+  "require_detail": false
+}

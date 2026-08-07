@@ -8,14 +8,26 @@ from pathlib import Path
 
 from atama_mvp.central import listing_row_to_central, write_jsonl
 from atama_mvp.enrich import enrich_collected
+from atama_mvp.feed_export import (
+    feed_metrics,
+    filter_feed_rows,
+    to_feed_record,
+    write_feed,
+)
 from atama_mvp.fetchers.ilan_gov import fetch_ilan_gov
 from atama_mvp.fetchers.ilan_gov_detail import inspect_bundle
 from atama_mvp.fetchers.kariyer_kapisi import fetch_kariyer_kapisi
 from atama_mvp.fetchers.sbb_kamuilan import fetch_sbb_kamuilan
+from atama_mvp.match import AlertProfile, filter_matches
 from atama_mvp.models import RawListing
-from atama_mvp.notify import format_new_candidates, send_telegram_message, telegram_configured
+from atama_mvp.notify import (
+    format_new_candidates,
+    list_telegram_chats,
+    send_telegram_message,
+    telegram_chat_ids,
+    telegram_configured,
+)
 from atama_mvp.store import Store
-
 
 def cmd_fetch(args: argparse.Namespace) -> int:
     store = Store(Path(args.db) if args.db else None)
@@ -168,10 +180,106 @@ def cmd_notify_test(args: argparse.Namespace) -> int:
     if not telegram_configured():
         print("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID first.", file=sys.stderr)
         return 1
+    ids = telegram_chat_ids()
     send_telegram_message(args.message)
-    print("Test message sent.")
+    print(f"Test message sent to {len(ids)} chat(s): {', '.join(ids)}")
     return 0
 
+
+def cmd_telegram_chats(args: argparse.Namespace) -> int:
+    """List recent chats from getUpdates (find private group chat_id)."""
+    try:
+        chats = list_telegram_chats(limit=args.limit)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if not chats:
+        print(
+            "No chats in getUpdates. Add the bot to your private group, "
+            "send a message there, then re-run.",
+            file=sys.stderr,
+        )
+        return 1
+    print("Put a group chat_id into TELEGRAM_CHAT_ID (see docs/telegram-private-group.md):\n")
+    for c in chats:
+        print(f"  chat_id={c['chat_id']}\ttype={c['type']}\ttitle={c['title']}")
+    return 0
+
+
+def cmd_export_feed(args: argparse.Namespace) -> int:
+    """B2B / partner demo feed: JSON + CSV + metrics (no raw bot demo)."""
+    store = Store(Path(args.db) if args.db else None)
+    raw_rows = store.all_for_export(args.status)
+    rows = filter_feed_rows(
+        raw_rows,
+        min_confidence=args.min_confidence,
+        enrich_detail_only=bool(args.detail_only),
+        limit=args.limit,
+    )
+    records = [to_feed_record(r, demo=bool(args.demo)) for r in rows]
+    metrics = feed_metrics(records, source_rows=len(raw_rows))
+    metrics["filters"] = {
+        "status": args.status,
+        "min_confidence": args.min_confidence,
+        "detail_only": bool(args.detail_only),
+        "demo": bool(args.demo),
+        "limit": args.limit,
+    }
+    paths = write_feed(records, metrics, Path(args.out))
+    print(f"Wrote {len(records)} rows → {paths['json']}")
+    print(f"CSV → {paths['csv']}")
+    print(f"Metrics → {paths['metrics']}")
+    cov = metrics.get("field_coverage") or {}
+    print(
+        f"Coverage quota={cov.get('quota', 0):.0%} kpss={cov.get('kpss_requirement', 0):.0%} "
+        f"edu={cov.get('education_levels', 0):.0%} age={cov.get('age', 0):.0%}",
+        flush=True,
+    )
+    return 0
+
+
+def cmd_match_alert(args: argparse.Namespace) -> int:
+    """Filter listings by alert profile; optional Telegram digest of matches only."""
+    profile = AlertProfile.load(Path(args.profile))
+    store = Store(Path(args.db) if args.db else None)
+    rows = store.all_for_export(args.status)
+    if args.since_hours and args.since_hours > 0:
+        import time
+
+        cutoff = time.time() - (args.since_hours * 3600)
+        filtered = []
+        for row in rows:
+            seen = row["first_seen_at"] if not isinstance(row, dict) else row.get("first_seen_at")
+            try:
+                if float(seen or 0) >= cutoff:
+                    filtered.append(row)
+            except (TypeError, ValueError):
+                continue
+        rows = filtered
+    matched = filter_matches(rows, profile)
+    print(f"Matched {len(matched)} / {len(rows)} (profile={args.profile})", flush=True)
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        payload = [listing_row_to_central(r) for r in matched]
+        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"Wrote matches → {out}", flush=True)
+    if not matched:
+        if args.notify_telegram:
+            print("No matches; Telegram skipped.", flush=True)
+        return 0
+    digest = format_new_candidates(matched, max_items=args.max_items)
+    header = f"Eşleşen ilan: {len(matched)} (profile filter)"
+    text = header + "\n\n" + digest
+    if args.notify_telegram:
+        if not telegram_configured():
+            print("Telegram skipped: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID", file=sys.stderr)
+            return 1
+        send_telegram_message(text)
+        print(f"Telegram sent to {len(telegram_chat_ids())} chat(s).", flush=True)
+    else:
+        print(text)
+    return 0
 
 def cmd_inspect_ilan(args: argparse.Namespace) -> int:
     """Fetch one ilan.gov detail (GetAdDetail), dump JSON, optional criteria parse. No Telegram."""
@@ -379,6 +487,57 @@ def build_parser() -> argparse.ArgumentParser:
     n = sub.add_parser("notify-test", help="Send a test Telegram message")
     n.add_argument("--message", default="atama-mvp: Telegram bağlantısı çalışıyor.")
     n.set_defaults(func=cmd_notify_test)
+
+    tc = sub.add_parser(
+        "telegram-chats",
+        help="List recent Telegram chats (find private group chat_id)",
+    )
+    tc.add_argument("--limit", type=int, default=40, help="getUpdates limit")
+    tc.set_defaults(func=cmd_telegram_chats)
+
+    ef = sub.add_parser(
+        "export-feed",
+        help="B2B/partner feed: JSON+CSV+metrics (use --demo for partner sample)",
+    )
+    ef.add_argument(
+        "--status",
+        default="all",
+        choices=["all", "pending", "approved", "rejected", "skipped"],
+    )
+    ef.add_argument("--min-confidence", type=float, default=0.0)
+    ef.add_argument("--detail-only", action="store_true", help="Only enrich_status=detail")
+    ef.add_argument(
+        "--demo",
+        action="store_true",
+        help="Partner-safe rows (no evidence/criteria dump)",
+    )
+    ef.add_argument("--limit", type=int, default=None, help="Max rows")
+    ef.add_argument("--out", default="data/feed/listings", help="Output stem (writes .json/.csv/.metrics.json)")
+    ef.set_defaults(func=cmd_export_feed)
+
+    ma = sub.add_parser(
+        "match-alert",
+        help="Filter by alert profile; optional Telegram of matches only",
+    )
+    ma.add_argument(
+        "--profile",
+        default="examples/alert-profile.example.json",
+        help="JSON profile path",
+    )
+    ma.add_argument(
+        "--status",
+        default="all",
+        choices=["all", "pending", "approved", "rejected", "skipped"],
+    )
+    ma.add_argument("--since-hours", type=float, default=0, help="Only first_seen within N hours")
+    ma.add_argument("--max-items", type=int, default=12)
+    ma.add_argument("--out", default=None, help="Optional JSON dump of matches")
+    ma.add_argument(
+        "--notify-telegram",
+        action="store_true",
+        help="Send matched digest to TELEGRAM_CHAT_ID",
+    )
+    ma.set_defaults(func=cmd_match_alert)
 
     insp = sub.add_parser(
         "inspect-ilan",

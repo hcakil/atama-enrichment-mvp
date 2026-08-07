@@ -36,5 +36,11 @@ ts() { date '+%Y-%m-%d %H:%M:%S%z'; }
   echo "--- $(ts) source=sbb ---"
   "$PYTHON" -m atama_mvp.cli fetch --source sbb --notify-telegram
 
+  echo "--- $(ts) export-central ---"
+  "$PYTHON" -m atama_mvp.cli export-central --status all --out data/central/listings.jsonl || true
+
+  echo "--- $(ts) export-feed ---"
+  "$PYTHON" -m atama_mvp.cli export-feed --status all --min-confidence 0.35 --out data/feed/nightly || true
+
   echo "======== $(ts) local-nightly done ========"
 } >>"$LOG_FILE" 2>&1

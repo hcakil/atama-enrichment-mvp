@@ -5,7 +5,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Sequence
+from typing import Any, Sequence  # Any used by list_telegram_chats / format helpers
 
 
 def _env(name: str) -> str | None:
@@ -14,16 +14,33 @@ def _env(name: str) -> str | None:
 
 
 def telegram_configured() -> bool:
-    return bool(_env("TELEGRAM_BOT_TOKEN") and _env("TELEGRAM_CHAT_ID"))
+    return bool(_env("TELEGRAM_BOT_TOKEN") and telegram_chat_ids())
+
+
+def telegram_chat_ids(chat_id: str | None = None) -> list[str]:
+    """Parse TELEGRAM_CHAT_ID — single id or comma-separated (group + optional DMs)."""
+    raw = (chat_id if chat_id is not None else _env("TELEGRAM_CHAT_ID")) or ""
+    return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 def send_telegram_message(text: str, *, token: str | None = None, chat_id: str | None = None) -> None:
-    """Send a plain text message via Bot API. Raises on HTTP/API errors."""
+    """Send plain text to one or more chat ids. Raises on HTTP/API errors."""
     token = token or _env("TELEGRAM_BOT_TOKEN")
-    chat_id = chat_id or _env("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
+    ids = telegram_chat_ids(chat_id)
+    if not token or not ids:
         raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required")
 
+    errors: list[str] = []
+    for cid in ids:
+        try:
+            _send_one(text, token=token, chat_id=cid)
+        except RuntimeError as exc:
+            errors.append(f"{cid}: {exc}")
+    if errors:
+        raise RuntimeError("Telegram send failed: " + "; ".join(errors))
+
+
+def _send_one(text: str, *, token: str, chat_id: str) -> None:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     body = urllib.parse.urlencode(
         {
@@ -47,6 +64,35 @@ def send_telegram_message(text: str, *, token: str | None = None, chat_id: str |
 
     if not payload.get("ok"):
         raise RuntimeError(f"Telegram API error: {payload}")
+
+
+def list_telegram_chats(*, token: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
+    """Recent chats from getUpdates — use after messaging the bot / adding it to a group."""
+    token = token or _env("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
+    url = f"https://api.telegram.org/bot{token}/getUpdates?limit={max(1, min(limit, 100))}"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Telegram HTTP {exc.code}: {detail}") from exc
+    if not payload.get("ok"):
+        raise RuntimeError(f"Telegram API error: {payload}")
+
+    seen: dict[str, dict[str, Any]] = {}
+    for upd in payload.get("result") or []:
+        msg = upd.get("message") or upd.get("my_chat_member") or upd.get("channel_post") or {}
+        chat = msg.get("chat") if isinstance(msg, dict) else None
+        if not isinstance(chat, dict) or chat.get("id") is None:
+            continue
+        cid = str(chat["id"])
+        kind = chat.get("type") or "unknown"
+        title = chat.get("title") or chat.get("username") or chat.get("first_name") or ""
+        seen[cid] = {"chat_id": cid, "type": kind, "title": title}
+    return list(seen.values())
 
 
 def _get(row: Any, key: str):

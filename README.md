@@ -59,19 +59,31 @@ python3 -m atama_mvp.cli export --status approved --out data/approved.json
 # Merkezi JSONL dump (paylaşılabilir şema)
 python3 -m atama_mvp.cli export-central --status all --out data/central/listings.jsonl
 
+# B2B / partner demo feed (JSON + CSV + metrics) — ham bot gösterme
+python3 -m atama_mvp.cli export-feed --demo --min-confidence 0.45 --out data/demo/feed
+
+# Private group chat_id bul
+python3 -m atama_mvp.cli telegram-chats
+
+# Profil filtresi + eşleşmeli alert
+python3 -m atama_mvp.cli match-alert --profile examples/alert-profile.example.json
+
 # Telegram test
 python3 -m atama_mvp.cli notify-test
 ```
 
+Ops: [docs/ops-windows-nightly.md](docs/ops-windows-nightly.md) · Multi-user Telegram: [docs/telegram-private-group.md](docs/telegram-private-group.md) · B2B demo: [docs/b2b-feed-and-demo.md](docs/b2b-feed-and-demo.md)
+
 ### Telegram (local)
 
 1. [@BotFather](https://t.me/BotFather) → `/newbot` → token al  
-2. Bota bir mesaj at; `getUpdates` ile `chat_id` bul  
-3. Shell’de (değerleri chat’e / commit’e yazma):
+2. **Private group** aç, botu ekle, grupta mesaj at  
+3. `python3 -m atama_mvp.cli telegram-chats` → group `chat_id` (negatif)  
+4. Shell’de (değerleri chat’e / commit’e yazma):
 
 ```bash
 export TELEGRAM_BOT_TOKEN="..."
-export TELEGRAM_CHAT_ID="..."
+export TELEGRAM_CHAT_ID="-100..."   # group; virgülle birden fazla id mümkün
 python3 -m atama_mvp.cli notify-test
 ```
 
@@ -205,6 +217,7 @@ TELEGRAM_CHAT_ID=...
 
 ## Sonraki adımlar
 
-1. Telegram secrets (local env + GitHub Secrets)  
-2. `notify-test` + Actions “Run workflow”  
-3. (İleride) diğer resmi kaynaklar / kalıcı DB
+1. Private group `TELEGRAM_CHAT_ID` (Mac + Windows) — [docs/telegram-private-group.md](docs/telegram-private-group.md)  
+2. Windows: `git pull` + Gemini/Turso `.env` — [docs/ops-windows-nightly.md](docs/ops-windows-nightly.md)  
+3. Partner demo: `export-feed --demo` — [docs/b2b-feed-and-demo.md](docs/b2b-feed-and-demo.md)  
+4. Pilot sonrası: `match-alert` ile eşleşmeli Telegram
