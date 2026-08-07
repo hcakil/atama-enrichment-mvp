@@ -56,9 +56,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         return 1
 
     print(f"[enrich] parsing criteria for {len(collected)} listing(s)…", flush=True)
-    detail_ilan = not getattr(args, "skip_detail", False)
+    skip = bool(getattr(args, "skip_detail", False))
     enriched, criteria_by_fp, enrich_status = enrich_collected(
-        collected, detail_ilan=detail_ilan
+        collected,
+        detail_ilan=not skip,
+        detail_sbb=not skip,
     )
     stats = store.upsert_listings(
         enriched,
@@ -230,6 +232,88 @@ def cmd_inspect_ilan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_probe_sbb(args: argparse.Namespace) -> int:
+    """Fetch one SBB detail URL (PDF/HTML), print text preview + StructuredCriteria."""
+    from atama_mvp.criteria import parse_structured_criteria
+    from atama_mvp.fetchers.sbb_detail import fetch_sbb_detail
+    from atama_mvp.gemini_criteria import (
+        extract_criteria_gemini,
+        merge_prefer_llm,
+        needs_llm,
+        usage_snapshot,
+    )
+
+    url = args.url
+    print(f"[probe-sbb] fetching {url[:90]}…", flush=True)
+    t0 = time.perf_counter()
+    bundle = fetch_sbb_detail(url)
+    elapsed = time.perf_counter() - t0
+    text = bundle.get("text") or ""
+    print(
+        f"[probe-sbb] ok in {elapsed:.1f}s — kind={bundle.get('kind')} "
+        f"type={bundle.get('content_type')} bytes={bundle.get('bytes_len')} "
+        f"text={len(text)}",
+        flush=True,
+    )
+    regex_crit = parse_structured_criteria(content_text=text)
+    criteria = regex_crit
+    llm_meta = None
+    if args.llm:
+        force = bool(args.force_llm)
+        if force or needs_llm(regex_crit, detail_text_len=len(text)):
+            llm_crit, llm_meta = extract_criteria_gemini(
+                content_text=text,
+                force=force,
+            )
+            criteria = merge_prefer_llm(regex_crit, llm_crit)
+            print(f"[probe-sbb] llm meta={ {k: llm_meta.get(k) for k in ('skipped','error','usage','prompt_chars','prompt_tokens_est')} }", flush=True)
+        else:
+            print(f"[probe-sbb] llm skipped (regex conf={regex_crit.confidence})", flush=True)
+        print(f"[probe-sbb] usage {usage_snapshot()}", flush=True)
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = int(time.time())
+    out_path = out_dir / f"sbb_probe_{stamp}.json"
+    payload = {
+        "url": bundle.get("url"),
+        "kind": bundle.get("kind"),
+        "content_type": bundle.get("content_type"),
+        "bytes_len": bundle.get("bytes_len"),
+        "content_text": text,
+        "content_text_len": len(text),
+        "regex_criteria": regex_crit.to_dict(),
+        "structured_criteria": criteria.to_dict(),
+        "llm_meta": llm_meta,
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {out_path}", flush=True)
+    print("\n=== text preview ===", flush=True)
+    print(text[:1200] + ("…" if len(text) > 1200 else ""), flush=True)
+    print("\n=== StructuredCriteria ===", flush=True)
+    sc = criteria.to_dict()
+    for key in (
+        "quota",
+        "kpss_requirement",
+        "education_level_hints",
+        "province_hints",
+        "min_age",
+        "max_age",
+        "gender",
+        "application_start_hint",
+        "application_end_hint",
+        "military_hints",
+        "confidence",
+        "evidence",
+    ):
+        if key in sc and sc[key] not in (None, [], {}):
+            val = sc[key]
+            if key == "province_hints" and isinstance(val, list) and len(val) > 12:
+                val = val[:12] + [f"... +{len(sc[key]) - 12}"]
+            print(f"  {key}: {val}", flush=True)
+    return 0 if bundle.get("kind") != "empty" else 1
+
+
 def cmd_export_central(args: argparse.Namespace) -> int:
     """Export all (or filtered) listings to canonical JSONL for shared/central use."""
     store = Store(Path(args.db) if args.db else None)
@@ -272,7 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument(
         "--skip-detail",
         action="store_true",
-        help="Skip ilan.gov GetAdDetail (list-only criteria)",
+        help="Skip ilan.gov GetAdDetail and SBB PDF/HTML detail (list-only criteria)",
     )
     f.set_defaults(func=cmd_fetch)
 
@@ -303,6 +387,20 @@ def build_parser() -> argparse.ArgumentParser:
     insp.add_argument("--id", default=None, help="ilan.gov ad id (default: first from list fetch)")
     insp.add_argument("--out-dir", default="data/inspect", help="Dump directory (gitignored under data/)")
     insp.set_defaults(func=cmd_inspect_ilan)
+
+    psbb = sub.add_parser(
+        "probe-sbb",
+        help="Fetch one SBB ilanDetay URL (PDF/HTML) + criteria (research; no Telegram)",
+    )
+    psbb.add_argument("--url", required=True, help="Full ilanDetay.aspx?kod=… URL")
+    psbb.add_argument("--out-dir", default="data/inspect", help="Dump directory")
+    psbb.add_argument("--llm", action="store_true", help="Also run Gemini when regex is weak")
+    psbb.add_argument(
+        "--force-llm",
+        action="store_true",
+        help="Always call Gemini (ignore conf gate; still uses truncate+cache)",
+    )
+    psbb.set_defaults(func=cmd_probe_sbb)
 
     c = sub.add_parser(
         "export-central",

@@ -73,8 +73,20 @@ def _parse_json_list(value: Any) -> list[str]:
     return []
 
 
+def _score_label(kpss: Any) -> str | None:
+    if not kpss or kpss in {"unknown", "None"}:
+        return None
+    if kpss == "tyt":
+        return "puan:TYT"
+    if kpss == "nokpss":
+        return "KPSS:yok"
+    if kpss == "kpss":
+        return "KPSS:var"
+    return f"puan:{kpss}"
+
+
 def format_listing_card(row: Any) -> list[str]:
-    """One meaningful Telegram card from lean DB row."""
+    """One meaningful Telegram card from lean DB row (skip unknown noise)."""
     source = _get(row, "source")
     title = _get(row, "title")
     institution = _get(row, "institution_name")
@@ -88,35 +100,45 @@ def format_listing_card(row: Any) -> list[str]:
     provinces = _parse_json_list(_get(row, "provinces"))
     enrich = _get(row, "enrich_status")
     confidence = _get(row, "confidence")
+    try:
+        conf_f = float(confidence) if confidence is not None else 0.0
+    except (TypeError, ValueError):
+        conf_f = 0.0
 
     lines = [f"• [{source}] {institution or '?'} — {title}"]
 
     bits: list[str] = []
     if quota is not None:
         bits.append(f"kota:{quota}")
-    if kpss:
-        bits.append(f"KPSS:{kpss}")
+    score = _score_label(kpss)
+    if score:
+        bits.append(score)
     if edu:
         bits.append(f"eğitim:{','.join(edu)}")
     if min_age is not None or max_age is not None:
         bits.append(f"yaş:{min_age or '?'}–{max_age or '?'}")
     if window:
         bits.append(f"süre:{window}")
-    if enrich:
-        bits.append(f"enrich:{enrich}")
-    if confidence is not None:
+    if enrich == "detail":
+        bits.append("enrich:detail")
+    if conf_f >= 0.35:
         bits.append(f"conf:{confidence}")
     if bits:
         lines.append(f"  {' | '.join(bits)}")
 
-    if provinces:
+    if provinces and conf_f >= 0.35:
         shown = provinces[:8]
         extra = len(provinces) - len(shown)
         prov = ", ".join(shown) + (f" (+{extra})" if extra > 0 else "")
         lines.append(f"  iller: {prov}")
 
     if source == "sbb_kamuilan":
-        lines.append("  liste: https://kamuilan.sbb.gov.tr/ (detay 404)")
+        if enrich == "detail" and url and "ilanDetay.aspx" in str(url):
+            lines.append(f"  {url}")
+        elif url and "kamuilan.sbb.gov.tr" in str(url) and "ilanDetay" not in str(url):
+            lines.append("  liste: https://kamuilan.sbb.gov.tr/ (detay yok/404)")
+        elif url:
+            lines.append(f"  {url}")
     elif url:
         lines.append(f"  {url}")
     return lines

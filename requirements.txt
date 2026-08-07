@@ -1,3 +1,4 @@
-# stdlib-only MVP; no hard runtime deps.
+# Runtime deps for detail enrichment
+pypdf>=5.0.0
 # Optional nicer HTML parsing if you prefer:
 # beautifulsoup4>=4.12
