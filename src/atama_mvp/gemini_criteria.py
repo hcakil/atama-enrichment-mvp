@@ -126,6 +126,8 @@ _SYSTEM = """Sen Türk kamu personel alım duyurularından yapılandırılmış 
 Sadece verilen metne dayan. Uydurma. Emin değilsen null / boş dizi kullan.
 Her dolu alan için evidence içine metinden kısa birebir alıntı koy.
 kpss_requirement yalnız: kpss | nokpss | tyt | unknown
+KPSS puan türü varsa (P93, P94, P3 vb.) evidence içine kpss_score_type ve min_score yaz.
+Birden fazla tür varsa evidence.kpss_score_types string olarak virgülle özetle (örn. "P94≥50;P93≥70").
 gender yalnız: male | female | any | null
 education_level_hints: lise, onlisans, lisans, yuksek_lisans, doktora, ortaokul
 quota: toplam kişi sayısı (yıl sayısı değil; 2026 kota değildir)

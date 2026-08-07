@@ -85,6 +85,45 @@ def _score_label(kpss: Any) -> str | None:
     return f"puan:{kpss}"
 
 
+def _kpss_variant_bits(row: Any) -> list[str]:
+    """Optional P93/P94 lines from KK API detail.kpss_variants (JSON/list)."""
+    raw = _get(row, "criteria_json")
+    variants = None
+    # Prefer explicit column if we ever add it; else dig evidence / ignore.
+    # Temp tests pass kpss_variants on the card dict directly.
+    variants = _get(row, "kpss_variants")
+    if not variants and isinstance(raw, str):
+        try:
+            crit = json.loads(raw)
+            ev = crit.get("evidence") or {}
+            if ev.get("kpss_score_type"):
+                return [f"KPSS:{ev.get('kpss_score_type')}≥{ev.get('min_score')}"]
+        except json.JSONDecodeError:
+            pass
+    if not variants:
+        return []
+    if isinstance(variants, str):
+        try:
+            variants = json.loads(variants)
+        except json.JSONDecodeError:
+            return []
+    bits: list[str] = []
+    seen: set[str] = set()
+    for v in variants or []:
+        if not isinstance(v, dict):
+            continue
+        st = v.get("kpss_score_type")
+        ms = v.get("min_score")
+        if st and ms is not None:
+            label = f"{st}≥{ms}"
+            if label not in seen:
+                seen.add(label)
+                bits.append(label)
+    if bits:
+        return [f"KPSS:{','.join(bits[:4])}"]
+    return []
+
+
 def format_listing_card(row: Any) -> list[str]:
     """One meaningful Telegram card from lean DB row (skip unknown noise)."""
     source = _get(row, "source")
@@ -113,6 +152,7 @@ def format_listing_card(row: Any) -> list[str]:
     score = _score_label(kpss)
     if score:
         bits.append(score)
+    bits.extend(_kpss_variant_bits(row))
     if edu:
         bits.append(f"eğitim:{','.join(edu)}")
     if min_age is not None or max_age is not None:

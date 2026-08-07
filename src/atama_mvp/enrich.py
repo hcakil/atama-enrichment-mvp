@@ -11,6 +11,10 @@ from .fetchers.ilan_gov_detail import (
     enrich_listing_from_detail,
     fetch_ilan_gov_detail,
 )
+from .fetchers.kariyer_kapisi_detail import (
+    enrich_listing_from_kk_detail,
+    fetch_kariyer_kapisi_detail,
+)
 from .fetchers.sbb_detail import detail_url_from_listing_raw, fetch_sbb_detail
 from .gemini_criteria import (
     extract_criteria_gemini,
@@ -102,6 +106,18 @@ def criteria_from_listing_detail(item: RawListing) -> StructuredCriteria:
     )
 
 
+def _enrich_kk(item: RawListing) -> tuple[RawListing, str]:
+    try:
+        bundle = fetch_kariyer_kapisi_detail(item.external_id)
+    except Exception:
+        raise
+    text = (bundle.get("content_text") or "").strip()
+    if len(text) < 80:
+        return item, "list"
+    item = enrich_listing_from_kk_detail(item, bundle)
+    return item, "detail"
+
+
 def _enrich_sbb(item: RawListing) -> tuple[RawListing, str]:
     detail_url = detail_url_from_listing_raw(item.raw)
     if not detail_url:
@@ -166,6 +182,22 @@ def enrich_collected(
             except Exception as exc:  # noqa: BLE001
                 print(
                     f"  [enrich] ilan_gov {item.external_id} detail FAILED: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                status = "list"
+        elif item.source == "kariyer_kapisi":
+            t0 = time.perf_counter()
+            try:
+                item, status = _enrich_kk(item)
+                print(
+                    f"  [enrich] kk {item.external_id} {status} "
+                    f"({time.perf_counter() - t0:.1f}s)",
+                    flush=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"  [enrich] kk {item.external_id} detail FAILED: {exc}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -236,6 +268,9 @@ def enrich_collected(
                     "content_type",
                     "bytes_len",
                     "detail_url",
+                    "alt_count",
+                    "kpss_variants",
+                    "preview",
                 )
                 lean["detail"] = {k: detail[k] for k in keep if k in detail}
             item.raw = lean
